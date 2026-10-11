@@ -1,5 +1,7 @@
 # Bughouse Analysis
 
+**Live at https://bughouse-analysis.vercel.app**
+
 A public bughouse analysis board in the spirit of lichess's game analysis: import a
 chess.com bughouse game (or set up both boards by hand) and review it with the
 [hivemind](https://github.com/aminwoo/hivemind) engine. Every move gets a judgement
