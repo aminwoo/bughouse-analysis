@@ -1,0 +1,49 @@
+{
+ "game": {
+  "id": 159878252253,
+  "uuid": "f7ce9e27-d789-11f0-9508-a0369feff220",
+  "moveList": "lB0KBK5QgvZJbs=CsCJCd7Q7-J-S=R+G+lCvlG-B&d&QJYSYRYBkdk&zGzQkY}87cM+0-R-tmt&mfmkm",
+  "moveTimestamps": "1800,1793,1793,1785,1792,1780,1783,1767,1774,1751,1773,1742,1755,1727,1741,1697,1723,1692,1714,1671,1691,1662,1656,1646,1655,1606,1650,1599,1533,1557,1502,1556,1424,1541,1043,1457,1029,1456,976,1455,976",
+  "partnerGameId": "f7ce9e28-d789-11f0-9508-a0369feff220",
+  "type": "bughouse",
+  "typeName": "Bughouse",
+  "baseTime1": 1800,
+  "timeIncrement1": 0.0,
+  "colorOfWinner": "black",
+  "gameEndReason": "checkmated",
+  "resultMessage": "MARVELandDCforLIFE won by checkmate",
+  "endTime": 1765564920,
+  "isFinished": true,
+  "pgnHeaders": {
+   "Event": "Live Chess - Bughouse",
+   "Site": "Chess.com",
+   "Date": "2025.12.12",
+   "White": "chickencrossroad",
+   "Black": "MARVELandDCforLIFE",
+   "Result": "0-1",
+   "ECO": "A40",
+   "WhiteElo": 2394,
+   "BlackElo": 2418,
+   "TimeControl": "180",
+   "EndTime": "18:42:00 GMT+0000",
+   "Termination": "MARVELandDCforLIFE won by checkmate",
+   "SetUp": "1",
+   "FEN": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+   "Variant": "Bughouse"
+  }
+ },
+ "players": {
+  "top": {
+   "username": "MARVELandDCforLIFE",
+   "rating": 2418,
+   "color": "black",
+   "chessTitle": "NM"
+  },
+  "bottom": {
+   "username": "chickencrossroad",
+   "rating": 2394,
+   "color": "white",
+   "chessTitle": "FM"
+  }
+ }
+}

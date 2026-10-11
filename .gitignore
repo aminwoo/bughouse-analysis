@@ -1,0 +1,16 @@
+node_modules/
+dist/
+*.log
+.DS_Store
+.vercel/
+
+# Generated at build/dev time
+src/generated/
+
+# Engine build intermediates (outputs in public/engine are committed)
+engine/build/
+engine/.cache/
+
+# Local reference checkouts
+vendor/
+bughouse-chess/

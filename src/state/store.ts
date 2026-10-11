@@ -1,0 +1,181 @@
+// Application state: the loaded game, the analysis tree and cursor, engine and
+// review status, and user settings.
+
+import { create } from "zustand";
+import type { BoardId, TeamId } from "../lib/bughouse";
+import { emptyGame, type GameRecord } from "../lib/game";
+import { buildTree, getNode, lineEnd, playMove, deleteVariation as removeVariation, type Tree } from "../lib/tree";
+import type { ClockModel, PositionEval } from "../lib/review";
+import type { EngineInfo } from "../engine/protocol";
+import type { SearchInfo } from "../engine/engineClient";
+import { localGet, localSet } from "../lib/storage";
+
+export type ReviewDepth = "fast" | "normal" | "deep";
+
+export interface Settings {
+  clockModel: ClockModel;
+  depth: ReviewDepth;
+  backend: "auto" | "webgpu" | "wasm";
+  threads: number;
+  arrows: boolean;
+  multiPV: number;
+}
+
+const DEFAULT_SETTINGS: Settings = {
+  clockModel: "clocks",
+  depth: "normal",
+  backend: "auto",
+  threads: 0,
+  arrows: true,
+  multiPV: 1,
+};
+
+export const REVIEW_NODES: Record<"webgpu" | "wasm", Record<ReviewDepth, number>> = {
+  webgpu: { fast: 400, normal: 1200, deep: 4000 },
+  wasm: { fast: 150, normal: 400, deep: 1200 },
+};
+
+export interface EngineState {
+  status: "off" | "loading" | "ready" | "error";
+  message?: string;
+  progress?: number;
+  info?: EngineInfo;
+  nps?: number;
+}
+
+export interface LiveState {
+  enabled: boolean;
+  team: "auto" | TeamId;
+  timeAdvantage: "auto" | "up" | "down";
+  /** Node and team the current results belong to. */
+  nodeId: string | null;
+  searchedTeam: TeamId | null;
+  /** Probability the searched team holds the time advantage (1/0 when forced). */
+  weight: number;
+  withTA: SearchInfo[];
+  withoutTA: SearchInfo[];
+}
+
+export interface ReviewState {
+  running: boolean;
+  done: number;
+  total: number;
+  nodes: number;
+  /** Network the evaluations came from. */
+  network?: string;
+  error?: string;
+}
+
+interface AppState {
+  game: GameRecord;
+  tree: Tree;
+  cursor: string;
+  flipped: boolean;
+  evals: (PositionEval | undefined)[];
+  review: ReviewState;
+  engine: EngineState;
+  live: LiveState;
+  settings: Settings;
+  loading: string | null;
+  error: string | null;
+
+  loadGame: (game: GameRecord, evals?: (PositionEval | undefined)[], cursorPly?: number) => void;
+  goto: (id: string) => void;
+  next: () => void;
+  prev: () => void;
+  first: () => void;
+  last: () => void;
+  play: (board: BoardId, uci: string) => boolean;
+  deleteVariation: (id: string) => void;
+  toggleFlip: () => void;
+  setEvals: (evals: (PositionEval | undefined)[]) => void;
+  setEval: (e: PositionEval) => void;
+  setReview: (review: Partial<ReviewState>) => void;
+  setEngine: (engine: Partial<EngineState>) => void;
+  setLive: (live: Partial<LiveState>) => void;
+  setSettings: (settings: Partial<Settings>) => void;
+  setLoading: (message: string | null) => void;
+  setError: (message: string | null) => void;
+}
+
+const initialGame = emptyGame();
+const initialTree = buildTree(initialGame);
+
+export const useStore = create<AppState>((set, get) => ({
+  game: initialGame,
+  tree: initialTree,
+  cursor: initialTree.rootId,
+  flipped: false,
+  evals: [],
+  review: { running: false, done: 0, total: 0, nodes: 0 },
+  engine: { status: "off" },
+  live: { enabled: false, team: "auto", timeAdvantage: "auto", nodeId: null, searchedTeam: null, weight: 0.5, withTA: [], withoutTA: [] },
+  settings: localGet("settings", DEFAULT_SETTINGS),
+  loading: null,
+  error: null,
+
+  loadGame: (game, evals = [], cursorPly) => {
+    const tree = buildTree(game);
+    const ply = cursorPly == null ? 0 : Math.max(0, Math.min(cursorPly, tree.mainline.length - 1));
+    set({
+      game,
+      tree,
+      cursor: tree.mainline[ply],
+      evals,
+      review: { running: false, done: evals.filter(Boolean).length, total: tree.mainline.length, nodes: 0 },
+      live: { ...get().live, withTA: [], withoutTA: [], nodeId: null },
+      error: null,
+    });
+  },
+  goto: (id) => {
+    if (get().tree.nodes.has(id)) set({ cursor: id });
+  },
+  next: () => {
+    const { tree, cursor } = get();
+    const node = getNode(tree, cursor);
+    if (node.children.length) set({ cursor: node.children[0] });
+  },
+  prev: () => {
+    const { tree, cursor } = get();
+    const node = getNode(tree, cursor);
+    if (node.parent) set({ cursor: node.parent });
+  },
+  first: () => set({ cursor: get().tree.rootId }),
+  last: () => {
+    const { tree, cursor } = get();
+    set({ cursor: lineEnd(tree, cursor) });
+  },
+  play: (board, uci) => {
+    const { tree, cursor } = get();
+    const result = playMove(tree, cursor, board, uci);
+    if (!result) return false;
+    set({ tree: result.tree, cursor: result.id });
+    return true;
+  },
+  deleteVariation: (id) => {
+    const { tree, cursor } = get();
+    const node = getNode(tree, id);
+    const next = removeVariation(tree, id);
+    // Step out of the deleted line if the cursor was inside it.
+    let target = cursor;
+    while (!next.nodes.has(target)) target = getNode(tree, target).parent ?? next.rootId;
+    set({ tree: next, cursor: next.nodes.has(cursor) ? cursor : node.parent ?? target });
+  },
+  toggleFlip: () => set({ flipped: !get().flipped }),
+  setEvals: (evals) => set({ evals }),
+  setEval: (e) => {
+    const evals = get().evals.slice();
+    evals[e.ply] = e;
+    set({ evals });
+  },
+  setReview: (review) => set({ review: { ...get().review, ...review } }),
+  setEngine: (engine) => set({ engine: { ...get().engine, ...engine } }),
+  setLive: (live) => set({ live: { ...get().live, ...live } }),
+  setSettings: (settings) => {
+    const next = { ...get().settings, ...settings };
+    localSet("settings", next);
+    set({ settings: next });
+  },
+  setLoading: (loading) => set({ loading }),
+  setError: (error) => set({ error }),
+}));

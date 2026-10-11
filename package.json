@@ -1,0 +1,36 @@
+{
+  "name": "bughouse-analysis",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "license": "GPL-3.0-or-later",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc -b",
+    "test": "vitest run",
+    "engine:build": "bash engine/build.sh",
+    "engine:test": "node engine/test/harness.mjs"
+  },
+  "dependencies": {
+    "chessground": "^9.2.1",
+    "chessops": "^0.15.1",
+    "onnxruntime-web": "^1.30.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "zustand": "^5.0.15"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^5.2.0",
+    "@webgpu/types": "^0.1.74",
+    "onnxruntime-node": "^1.30.0",
+    "tsx": "^4.23.15",
+    "typescript": "~5.9",
+    "vite": "^7.3.7",
+    "vitest": "^4.1.11"
+  }
+}

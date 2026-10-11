@@ -1,0 +1,49 @@
+{
+ "game": {
+  "id": 159878252255,
+  "uuid": "f7ce9e28-d789-11f0-9508-a0369feff220",
+  "moveList": "mC!Tbs5QlB0KBKQKgvKvov9zCK70dm=BKT0mfmBs&C&SCz=lclslzlST-JTR-H+KHRKRhg=Ulu-S-H8!=V-LusLVHRYRJ0!?=M&BsBSBMVBked-S",
+  "moveTimestamps": "1800,1800,1792,1799,1789,1798,1787,1797,1783,1793,1776,1791,1772,1784,1765,1779,1758,1767,1754,1766,1738,1735,1726,1731,1720,1730,1715,1726,1705,1720,1681,1700,1666,1699,1657,1653,1651,1643,1645,1628,1624,1611,1560,1594,1542,1540,1535,1527,1518,1504,1050,1503,1045,1444,1029,1435,995",
+  "partnerGameId": "f7ce9e27-d789-11f0-9508-a0369feff220",
+  "type": "bughouse",
+  "typeName": "Bughouse",
+  "baseTime1": 1800,
+  "timeIncrement1": 0.0,
+  "colorOfWinner": "white",
+  "gameEndReason": "bughousepartnerlose",
+  "resultMessage": "vjbaker won with their bughouse partner",
+  "endTime": 1765564920,
+  "isFinished": true,
+  "pgnHeaders": {
+   "Event": "Live Chess - Bughouse",
+   "Site": "Chess.com",
+   "Date": "2025.12.12",
+   "White": "vjbaker",
+   "Black": "Emeraldddd",
+   "Result": "1-0",
+   "ECO": "B00",
+   "WhiteElo": 2601,
+   "BlackElo": 2535,
+   "TimeControl": "180",
+   "EndTime": "18:42:00 GMT+0000",
+   "Termination": "vjbaker won with their bughouse partner",
+   "SetUp": "1",
+   "FEN": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+   "Variant": "Bughouse"
+  }
+ },
+ "players": {
+  "top": {
+   "username": "Emeraldddd",
+   "rating": 2535,
+   "color": "black",
+   "chessTitle": "FM"
+  },
+  "bottom": {
+   "username": "vjbaker",
+   "rating": 2601,
+   "color": "white",
+   "chessTitle": "NM"
+  }
+ }
+}
