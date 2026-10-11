@@ -1,0 +1,9 @@
+# Keep local-only checkouts and build intermediates out of CLI deployments.
+node_modules
+dist
+vendor
+bughouse-chess
+engine/build
+engine/.cache
+src/generated
+.env*

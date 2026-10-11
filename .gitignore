@@ -14,3 +14,5 @@ engine/.cache/
 # Local reference checkouts
 vendor/
 bughouse-chess/
+.vercel
+.env*
