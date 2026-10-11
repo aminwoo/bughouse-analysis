@@ -1,13 +1,32 @@
 import { describe, expect, it } from "vitest";
-import { blend, moveAccuracy, reviewMoves, timeAdvantageWeight, valueFor, type PositionEval } from "../src/lib/review";
+import {
+  blend,
+  gameAccuracy,
+  moveAccuracy,
+  reviewMoves,
+  summarize,
+  timeAdvantageWeight,
+  valueFor,
+  volatilityWeights,
+  type MoveReview,
+  type PositionEval,
+} from "../src/lib/review";
 import { cpToValue, parseInfo, parseJointMove } from "../src/engine/engineClient";
 import type { GameRecord } from "../src/lib/game";
 
-const evalOf = (ply: number, team: "white" | "black", ta: number, noTa: number, best: string | null = null): PositionEval => ({
+/** `played` values are the restricted searches for the game's next move. */
+const evalOf = (
+  ply: number,
+  team: "white" | "black",
+  ta: number,
+  noTa: number,
+  best: string | null = null,
+  played: { ta?: number; noTa?: number } = {},
+): PositionEval => ({
   ply,
   team,
-  withTA: { value: ta, mate: null, best: best ? { a: best, b: null } : null, pv: [], nodes: 100 },
-  withoutTA: { value: noTa, mate: null, best: best ? { a: best, b: null } : null, pv: [], nodes: 100 },
+  withTA: { value: ta, mate: null, best: best ? { a: best, b: null } : null, pv: [], nodes: 100, played: played.ta },
+  withoutTA: { value: noTa, mate: null, best: best ? { a: best, b: null } : null, pv: [], nodes: 100, played: played.noTa },
 });
 
 describe("time advantage weight", () => {
@@ -40,9 +59,11 @@ describe("reviewMoves", () => {
     startClocks: null,
   } as unknown as GameRecord;
 
-  it("charges a move with its team's value drop", () => {
-    const evals = [evalOf(0, "white", 0.2, 0.2, "d2d4"), evalOf(1, "black", 0.3, 0.3), evalOf(2, "white", -0.3, -0.3)];
+  it("charges a move with how far its own search falls below the best", () => {
+    const evals = [evalOf(0, "white", 0.2, 0.2, "d2d4", { ta: -0.3, noTa: -0.3 }), evalOf(1, "black", 0.3, 0.3, "e7e5"), evalOf(2, "white", -0.3, -0.3)];
     const reviews = reviewMoves(game, evals, "neutral");
+    expect(reviews[1]!.before).toBeCloseTo(0.2);
+    expect(reviews[1]!.after).toBeCloseTo(-0.3);
     expect(reviews[1]!.loss).toBeCloseTo(0.5);
     expect(reviews[1]!.judgement).toBe("blunder");
     expect(reviews[1]!.best).toBe("d2d4");
@@ -50,8 +71,24 @@ describe("reviewMoves", () => {
   });
 
   it("does not blame a move the engine itself chose", () => {
+    // The next position's value is lower, but the move was the engine's pick.
     const evals = [evalOf(0, "white", 0.2, 0.2, "e2e4"), evalOf(1, "black", 0.3, 0.3), evalOf(2, "white", 0, 0)];
-    expect(reviewMoves(game, evals, "neutral")[1]!.judgement).toBeNull();
+    expect(reviewMoves(game, evals, "neutral")[1]!.loss).toBe(0);
+  });
+
+  it("blends the clock cases when only one search preferred another move", () => {
+    // Up on time e4 was the choice; down on time it cost 0.5, half of which counts.
+    const evals = [evalOf(0, "white", 0.6, -0.2, "e2e4", { noTa: -0.7 }), evalOf(1, "black", 0, 0, "e7e5")];
+    const review = reviewMoves(game, evals, "neutral")[1]!;
+    expect(review.loss).toBeCloseTo(0.25);
+    expect(review.judgement).toBe("mistake");
+  });
+
+  it("leaves a move unjudged until the position before it is searched", () => {
+    const evals = [undefined, evalOf(1, "black", 0, 0, "e7e5")];
+    const reviews = reviewMoves(game, evals, "neutral");
+    expect(reviews[1]).toBeNull();
+    expect(reviews[2]!.loss).toBe(0);
   });
 
   it("scores accuracy like lichess", () => {
@@ -59,6 +96,83 @@ describe("reviewMoves", () => {
     expect(moveAccuracy(0.5, -0.5)).toBeLessThan(20);
   });
 });
+
+describe("summarize", () => {
+  // A White, B White, A Black, B Black, A White: two moves per team plus one.
+  const seats = [
+    ["A", "white"],
+    ["B", "white"],
+    ["A", "black"],
+    ["B", "black"],
+    ["A", "white"],
+  ] as const;
+  const game = { moves: seats.map(([board, color]) => ({ board, color })) } as unknown as GameRecord;
+  const review = (ply: number, accuracy: number, judgement: MoveReview["judgement"] = null) => ({ ply, accuracy, judgement }) as MoveReview;
+  const reviews = [null, review(1, 90), review(2, 40, "blunder"), review(3, 70, "inaccuracy"), review(4, 100), review(5, 60, "mistake")];
+  // A flat evaluation gives every move the same weight.
+  const flat = Array(6).fill(0);
+
+  it("totals each team over both of its players' moves", () => {
+    const [white, black] = summarize(game, reviews, flat);
+    expect(white.team).toBe("white");
+    // A White (plies 1, 5) and B Black (ply 4).
+    expect(white.moves).toBe(3);
+    expect(white.accuracy).toBeCloseTo(equalWeightAccuracy([90, 60, 100])!);
+    expect([white.inaccuracy, white.mistake, white.blunder]).toEqual([0, 1, 0]);
+    // A Black (ply 3) and B White (ply 2).
+    expect(black.moves).toBe(2);
+    expect(black.accuracy).toBeCloseTo(equalWeightAccuracy([70, 40])!);
+    expect([black.inaccuracy, black.mistake, black.blunder]).toEqual([1, 0, 1]);
+  });
+
+  it("lists each team's players, board A first", () => {
+    const [white, black] = summarize(game, reviews, flat);
+    expect(white.players.map((p) => `${p.board}${p.color}`)).toEqual(["Awhite", "Bblack"]);
+    expect(black.players.map((p) => `${p.board}${p.color}`)).toEqual(["Ablack", "Bwhite"]);
+    expect(white.players[0].accuracy).toBeCloseTo(equalWeightAccuracy([90, 60])!);
+    expect(black.players[1].blunder).toBe(1);
+  });
+
+  it("leaves accuracy empty before any move is reviewed", () => {
+    const [white] = summarize(game, [], []);
+    expect(white.accuracy).toBeNull();
+    expect(white.players[0].moves).toBe(0);
+  });
+});
+
+describe("lichess accuracy", () => {
+  it("scores a move by its win-percentage drop", () => {
+    expect(moveAccuracy(0.2, 0.2)).toBe(100);
+    expect(moveAccuracy(0.2, 0.3)).toBe(100);
+    // A 5-point drop (0.1 in value) scores about 80.8 on lichess's curve.
+    expect(moveAccuracy(0.1, 0)).toBeCloseTo(80.82, 1);
+    expect(moveAccuracy(1, -1)).toBe(0);
+  });
+
+  it("pulls game accuracy down for a bad move more than a plain average does", () => {
+    const accs = [100, 100, 100, 100, 100, 100, 100, 100, 100, 30];
+    const mean = accs.reduce((s, x) => s + x, 0) / accs.length;
+    expect(mean).toBe(93);
+    // Harmonic mean 10 / (9/100 + 1/30) = 81.08, averaged with the mean 93.
+    expect(equalWeightAccuracy(accs)).toBeCloseTo(87.04, 2);
+    expect(equalWeightAccuracy([95, 95])).toBeCloseTo(95);
+    expect(gameAccuracy([])).toBeNull();
+  });
+
+  it("weights moves by how volatile the evaluation is around them", () => {
+    // Flat start, then a swing: the later moves get more weight.
+    const win = [50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 80, 30];
+    const weights = volatilityWeights(win);
+    expect(weights).toHaveLength(win.length - 1);
+    expect(weights[0]).toBe(0.5);
+    expect(weights[weights.length - 1]).toBeGreaterThan(5);
+    expect(Math.max(...volatilityWeights([0, 100, 0, 100, 0, 100]))).toBe(12);
+  });
+});
+
+function equalWeightAccuracy(accs: number[]) {
+  return gameAccuracy(accs.map((accuracy) => ({ accuracy, weight: 1 })));
+}
 
 describe("UCI parsing", () => {
   it("parses hivemind info lines", () => {

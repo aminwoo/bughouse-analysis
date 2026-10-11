@@ -25,7 +25,10 @@ function EngineTest() {
       setStatus(`ready ${JSON.stringify(i)}`);
       (window as unknown as { engineResult: unknown }).engineResult = null;
       const t = performance.now();
-      const result = await e.search({ position: "startpos", moves: [], team: "white", timeAdvantage: true, nodes: Number(new URLSearchParams(location.search).get("nodes") ?? 3000), onInfo: setInfo });
+      // ?moves=1e2e4,2d2d4&team=black&ta=false selects the position searched.
+      const moves = q.get("moves")?.split(",").filter(Boolean) ?? [];
+      const team = (q.get("team") ?? "white") as "white" | "black";
+      const result = await e.search({ position: "startpos", moves, team, timeAdvantage: q.get("ta") !== "false", nodes: Number(q.get("nodes") ?? 3000), onInfo: setInfo });
       (window as unknown as { engineResult: unknown }).engineResult = { result, ms: performance.now() - t, info: i };
     }, (err) => setStatus(`error: ${err.message}`));
     return () => e.terminate();

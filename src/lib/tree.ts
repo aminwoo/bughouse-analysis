@@ -88,10 +88,15 @@ export function pathTo(tree: Tree, id: string): TreeNode[] {
 }
 
 /** Engine moves ("1e2e4", "2N@f3") from the root to a node. */
+/** A move in the engine's board-prefixed format, e.g. "1e2e4" or "2P@f7". */
+export function engineMove(move: { board: BoardId; uci: string }): string {
+  return (move.board === "A" ? "1" : "2") + move.uci;
+}
+
 export function engineMoves(tree: Tree, id: string): string[] {
   return pathTo(tree, id)
     .slice(1)
-    .map((node) => (node.move!.board === "A" ? "1" : "2") + node.move!.uci);
+    .map((node) => engineMove(node.move!));
 }
 
 export function engineRequestFor(tree: Tree, game: GameRecord, id: string) {

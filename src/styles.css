@@ -814,8 +814,15 @@ select:focus,
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.summary tr.team-black td:first-child {
-  border-left: 0;
+.summary .team-row td {
+  padding-top: 7px;
+  font-weight: 600;
+}
+.summary .player-row td:first-child {
+  padding-left: 18px;
+}
+.summary .team-group + .team-group .team-row td {
+  border-top: 1px solid var(--border);
 }
 .seat-dot {
   display: inline-block;
@@ -972,16 +979,13 @@ th.j-blunder,
   margin-left: 1px;
   font-weight: 800;
 }
-.j-inaccuracy .glyph,
-.legend-item.j-inaccuracy {
+.j-inaccuracy .glyph {
   color: var(--inaccuracy);
 }
-.j-mistake .glyph,
-.legend-item.j-mistake {
+.j-mistake .glyph {
   color: var(--mistake);
 }
-.j-blunder .glyph,
-.legend-item.j-blunder {
+.j-blunder .glyph {
   color: var(--blunder);
 }
 .move-cell.j-inaccuracy .move-san {
@@ -1048,14 +1052,6 @@ th.j-blunder,
 }
 .empty-hint {
   padding: 8px 10px;
-}
-.legend {
-  display: flex;
-  gap: 12px;
-  padding: 6px 10px;
-  border-top: 1px solid var(--border);
-  font-size: 0.75rem;
-  color: var(--muted);
 }
 
 /* Modals */

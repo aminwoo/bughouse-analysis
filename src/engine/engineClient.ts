@@ -38,7 +38,15 @@ export interface SearchRequest {
   movetime?: number;
   infinite?: boolean;
   multipv?: number;
+  /** Board-prefixed moves, all on one board, that the root must choose between. */
+  searchMoves?: string[];
   onInfo?: (info: SearchInfo) => void;
+}
+
+/** The go command for a request. */
+export function goCommand(r: SearchRequest): string {
+  const limit = r.infinite ? "infinite" : r.nodes ? `nodes ${r.nodes}` : `movetime ${r.movetime ?? 1000}`;
+  return `go ${limit}${r.searchMoves?.length ? ` searchmoves ${r.searchMoves.join(" ")}` : ""}`;
 }
 
 const SCORE_C = 180;
@@ -194,9 +202,7 @@ export class EngineClient {
     this.send(`setoption name Team value ${r.team}`);
     this.send(`setoption name TimeAdvantage value ${r.timeAdvantage ? "true" : "false"}`);
     this.send(`position ${r.position}${r.moves.length ? " moves " + r.moves.join(" ") : ""}`);
-    if (r.infinite) this.send("go infinite");
-    else if (r.nodes) this.send(`go nodes ${r.nodes}`);
-    else this.send(`go movetime ${r.movetime ?? 1000}`);
+    this.send(goCommand(r));
   }
 
   private handleLine(line: string) {

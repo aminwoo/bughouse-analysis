@@ -27,7 +27,8 @@ async function detectBackend(config: EngineConfig): Promise<{ backend: Inference
   const gpu = (navigator as Navigator & { gpu?: GPU }).gpu;
   if (gpu) {
     try {
-      const adapter = await gpu.requestAdapter({ powerPreference: "high-performance" });
+      // Some browsers (headless Chrome) answer the hint with no adapter at all.
+      const adapter = (await gpu.requestAdapter({ powerPreference: "high-performance" })) ?? (await gpu.requestAdapter());
       if (adapter) {
         const info = adapter.info;
         const name = [info?.vendor, info?.architecture, info?.description].filter(Boolean).join(" ");
@@ -70,8 +71,14 @@ async function init(config: EngineConfig, base: string) {
   }
   const { backend, gpu } = await detectBackend(config);
   const cores = navigator.hardwareConcurrency || 4;
-  const cpuWorkers = config.threads > 0 ? config.threads : Math.max(1, Math.min(8, Math.floor(cores / 2)));
-  const slots = backend === "webgpu" ? (config.gpuSlots && config.gpuSlots > 0 ? config.gpuSlots : 8) : cpuWorkers;
+  // CPU: one single-threaded inference worker per logical core but one, which
+  // measured faster than leaving the hyperthreads idle.
+  const cpuWorkers = config.threads > 0 ? config.threads : Math.max(1, Math.min(16, cores - 1));
+  // WebGPU: a call costs about the same for 16 positions as for 64, so many
+  // search slots (each with its own batch) keep the GPU calls full. Their
+  // threads mostly wait on the GPU, so they scale with the cores loosely.
+  const gpuSlots = config.gpuSlots && config.gpuSlots > 0 ? config.gpuSlots : Math.max(16, Math.min(48, cores * 4));
+  const slots = backend === "webgpu" ? gpuSlots : cpuWorkers;
   const batch = config.batchSize && config.batchSize > 0 ? config.batchSize : 8;
 
   post({ type: "status", text: "Loading network" });
@@ -85,6 +92,9 @@ async function init(config: EngineConfig, base: string) {
   const ready = new Promise<boolean>((resolve) => (resolveReady = resolve));
   module = await createHivemind({
     arguments: ["--engines", String(slots), "--batch-size", String(batch), "--model", "/model.onnx"],
+    // One thread per search slot, plus the UCI loop, search driver, mate
+    // probes and garbage collector.
+    pthreadPoolSize: slots + 8,
     locateFile: (path: string) => new URL(`${base}engine/${path}`, self.location.origin).href,
     mainScriptUrlOrBlob: engineUrl,
     print: (line: string) => {
@@ -99,7 +109,7 @@ async function init(config: EngineConfig, base: string) {
 
   post({ type: "status", text: backend === "webgpu" ? "Compiling network for the GPU" : "Loading network" });
   const registryPtr = module._hm_inference_registry();
-  const gpuWorkers = Math.max(1, Math.min(slots, config.gpuWorkers && config.gpuWorkers > 0 ? config.gpuWorkers : 2));
+  const gpuWorkers = Math.max(1, Math.min(slots, config.gpuWorkers && config.gpuWorkers > 0 ? config.gpuWorkers : slots >= 32 ? 3 : 2));
   const groups =
     backend === "webgpu"
       ? Array.from({ length: gpuWorkers }, (_, w) => Array.from({ length: slots }, (_, i) => i).filter((i) => i % gpuWorkers === w))
@@ -107,6 +117,7 @@ async function init(config: EngineConfig, base: string) {
   let positions = 0;
   let calls = 0;
   let busyMs = 0;
+  let readMs = 0;
   let windowMs = 0;
   await Promise.all(
     groups.map(
@@ -122,6 +133,7 @@ async function init(config: EngineConfig, base: string) {
               positions += message.positions;
               calls += message.calls;
               busyMs += message.busyMs;
+              readMs += message.readMs;
               windowMs = Math.max(windowMs, message.windowMs);
             }
           };
@@ -138,11 +150,13 @@ async function init(config: EngineConfig, base: string) {
         busy: busyMs / (windowMs * groups.length),
         batchAvg: calls ? positions / calls : 0,
         callMs: calls ? busyMs / calls : 0,
+        readMs: calls ? readMs / calls : 0,
       });
     }
     positions = 0;
     calls = 0;
     busyMs = 0;
+    readMs = 0;
     windowMs = 0;
   }, 1000);
 

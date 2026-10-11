@@ -13,6 +13,8 @@ type Ort = typeof import("onnxruntime-web");
 type Session = Awaited<ReturnType<Ort["InferenceSession"]["create"]>>;
 
 const INPUT_SHAPE = [74, 8, 8];
+/** Time spent waiting for WebGPU readbacks, reported with the stats. */
+let readMs = 0;
 
 async function loadOrt(backend: InferenceInit["backend"]): Promise<Ort> {
   // The default bundle carries the JSEP WebGPU backend, which measured faster
@@ -50,37 +52,82 @@ async function plainRunner(ort: Ort, model: Uint8Array, ep: string): Promise<Net
   };
 }
 
+/** Batch sizes to capture for `capacity` rows: halvings down to one slot's batch. */
+export function captureSizes(capacity: number, slotBatch: number): number[] {
+  const sizes = [capacity];
+  while (sizes[0] / 2 >= slotBatch && sizes[0] % 2 === 0) sizes.unshift(sizes[0] / 2);
+  return sizes;
+}
+
 /**
- * WebGPU with a captured graph: every call has `capacity` rows (shorter
- * batches are zero-padded), which lets onnxruntime replay recorded command
- * buffers instead of re-dispatching each kernel. Network cost is almost flat
- * in batch size on a GPU, so the padding is nearly free.
+ * WebGPU with captured graphs: onnxruntime replays recorded command buffers
+ * instead of re-dispatching each kernel, which halves the cost of a call, but a
+ * captured graph has a fixed batch. Several sizes are captured and each call
+ * runs on the smallest that fits, since GPU time grows with the rows computed.
+ * Only the rows in use cross the bus either way.
  */
-async function capturedRunner(ort: Ort, model: Uint8Array, capacity: number, inputValues: number): Promise<NetworkRunner> {
-  const session: Session = await ort.InferenceSession.create(model, {
-    executionProviders: ["webgpu"],
-    graphOptimizationLevel: "all",
-    freeDimensionOverrides: { batch: capacity },
-    enableGraphCapture: true,
-    preferredOutputLocation: "gpu-buffer",
-  });
+async function capturedRunner(ort: Ort, model: Uint8Array, capacity: number, slotBatch: number, inputValues: number): Promise<NetworkRunner> {
+  const sizes = captureSizes(capacity, slotBatch);
+  const sessions: { size: number; session: Session }[] = [];
+  for (const size of sizes) {
+    sessions.push({
+      size,
+      session: await ort.InferenceSession.create(model, {
+        executionProviders: ["webgpu"],
+        graphOptimizationLevel: "all",
+        freeDimensionOverrides: { batch: size },
+        enableGraphCapture: true,
+        preferredOutputLocation: "gpu-buffer",
+      }),
+    });
+  }
   const device = (await ort.env.webgpu.device) as GPUDevice;
+  // One input buffer for all sizes; each session reads its first rows.
   const buffer = device.createBuffer({
     size: capacity * inputValues * 4,
     usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
   });
-  const input = ort.Tensor.fromGpuBuffer(buffer, { dataType: "float32", dims: [capacity, ...INPUT_SHAPE] });
-  const padded = new Float32Array(capacity * inputValues);
-  const names = mapOutputNames(session.outputNames);
-  const inputName = session.inputNames[0];
+  const inputs = sessions.map(({ size }) => ort.Tensor.fromGpuBuffer(buffer, { dataType: "float32", dims: [size, ...INPUT_SHAPE] }));
+  const outputNames = sessions[0].session.outputNames;
+  const names = mapOutputNames(outputNames);
+  const inputName = sessions[0].session.inputNames[0];
+  // Values per position of each output, and a staging buffer that holds all
+  // of them for a full batch; set up on the first run.
+  let widths: number[] | null = null;
+  let staging: GPUBuffer | null = null;
   return async (data, batch) => {
-    if (batch > capacity) throw new Error(`batch ${batch} exceeds capacity ${capacity}`);
-    padded.set(data);
-    if (data.length < padded.length) padded.fill(0, data.length);
-    device.queue.writeBuffer(buffer, 0, padded);
-    const out = await session.run({ [inputName]: input });
-    const arrays = await Promise.all(session.outputNames.map(async (name) => [name, (await out[name].getData(true)) as Float32Array] as const));
-    const byName = new Map(arrays);
+    const index = sessions.findIndex(({ size }) => size >= batch);
+    if (index < 0) throw new Error(`batch ${batch} exceeds capacity ${capacity}`);
+    const { session } = sessions[index];
+    // Rows past `batch` keep an earlier call's positions; their outputs are never read.
+    // serveSlots copies the batch out of wasm memory into a plain ArrayBuffer.
+    device.queue.writeBuffer(buffer, 0, data as Float32Array<ArrayBuffer>, 0, batch * inputValues);
+    const out = await session.run({ [inputName]: inputs[index] });
+    if (!widths) {
+      widths = outputNames.map((name) => out[name].dims.slice(1).reduce((a, b) => a * b, 1));
+      staging = device.createBuffer({
+        size: capacity * widths.reduce((a, b) => a + b, 0) * 4,
+        usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
+      });
+    }
+    // Copy the used rows of every output side by side and read them back in one map.
+    const encoder = device.createCommandEncoder();
+    const offsets: number[] = [];
+    let offset = 0;
+    outputNames.forEach((name, i) => {
+      offsets.push(offset);
+      const bytes = batch * widths![i] * 4;
+      encoder.copyBufferToBuffer(out[name].gpuBuffer as GPUBuffer, 0, staging!, offset, bytes);
+      offset += bytes;
+    });
+    device.queue.submit([encoder.finish()]);
+    const readStart = performance.now();
+    await staging!.mapAsync(GPUMapMode.READ, 0, offset);
+    readMs += performance.now() - readStart;
+    const mapped = new Float32Array(staging!.getMappedRange(0, offset).slice(0));
+    staging!.unmap();
+    const byName = new Map(outputNames.map((name, i) => [name, mapped.subarray(offsets[i] / 4, offsets[i] / 4 + batch * widths![i])]));
+    for (const name of outputNames) out[name].dispose();
     return outputsFrom(names, (name) => byName.get(name)!);
   };
 }
@@ -103,7 +150,7 @@ self.onmessage = async (event: MessageEvent<InferenceInit | "stop">) => {
     let run: NetworkRunner;
     if (init.backend === "webgpu") {
       try {
-        run = await capturedRunner(ort, init.model, capacity, registry.inputValues);
+        run = await capturedRunner(ort, init.model, capacity, slots[0]?.batch ?? capacity, registry.inputValues);
       } catch (error) {
         console.warn("graph capture unavailable, using plain WebGPU", error);
         run = await plainRunner(ort, init.model, "webgpu");
@@ -112,10 +159,14 @@ self.onmessage = async (event: MessageEvent<InferenceInit | "stop">) => {
       run = await plainRunner(ort, init.model, "wasm");
     }
 
-    // Warm up so the first real request does not pay for shader compilation.
+    // Warm up (and capture) every batch size so the first real requests do not
+    // pay for shader compilation.
     const warmStart = performance.now();
-    await run(new Float32Array(capacity * registry.inputValues), capacity);
-    await run(new Float32Array(capacity * registry.inputValues), capacity);
+    const warmSizes = init.backend === "webgpu" ? captureSizes(capacity, slots[0]?.batch ?? capacity) : [capacity];
+    for (const size of warmSizes) {
+      await run(new Float32Array(size * registry.inputValues), size);
+      await run(new Float32Array(size * registry.inputValues), size);
+    }
     post({ type: "ready", slots: slots.map((s) => s.index), warmupMs: performance.now() - warmStart });
 
     let positions = 0;
@@ -135,7 +186,8 @@ self.onmessage = async (event: MessageEvent<InferenceInit | "stop">) => {
         busy += ms;
         const now = performance.now();
         if (now - lastReport > 1000) {
-          post({ type: "stats", positions, calls, busyMs: busy, windowMs: now - lastReport });
+          post({ type: "stats", positions, calls, busyMs: busy, windowMs: now - lastReport, readMs });
+          readMs = 0;
           positions = 0;
           calls = 0;
           busy = 0;

@@ -5,6 +5,9 @@
 #   engine/build.sh                     # clone hivemind at the pinned commit
 #   HIVEMIND_ROOT=~/hivemind engine/build.sh   # use an existing checkout
 #
+# engine/patches/*.patch are applied to the pinned checkout; an existing
+# checkout must already contain them.
+#
 # Requires an activated Emscripten SDK (source emsdk_env.sh) and Python 3
 # with `onnx` for the one-off FP16 -> FP32 network conversion.
 set -euo pipefail
@@ -26,15 +29,31 @@ if ! command -v emcmake >/dev/null; then
     exit 1
 fi
 
+# Changes the site needs on top of HIVEMIND_COMMIT (see each file's header).
+PATCHES=("$ENGINE_DIR"/patches/*.patch)
+
 if [[ -z "${HIVEMIND_ROOT:-}" ]]; then
     HIVEMIND_ROOT="$CACHE_DIR/hivemind"
     if [[ ! -d "$HIVEMIND_ROOT/.git" ]]; then
         git clone --filter=blob:none "$HIVEMIND_REPO" "$HIVEMIND_ROOT"
     fi
     git -C "$HIVEMIND_ROOT" fetch --quiet origin
-    git -C "$HIVEMIND_ROOT" checkout --quiet "$HIVEMIND_COMMIT"
+    # This checkout belongs to the build: reset it, then apply the patches.
+    git -C "$HIVEMIND_ROOT" checkout --quiet --force "$HIVEMIND_COMMIT"
+    for patch in "${PATCHES[@]}"; do
+        git -C "$HIVEMIND_ROOT" apply "$patch"
+    done
+else
+    # Never modify a checkout we were pointed at; only check it has the patches.
+    for patch in "${PATCHES[@]}"; do
+        if ! git -C "$HIVEMIND_ROOT" apply --reverse --check "$patch" 2>/dev/null; then
+            echo "$HIVEMIND_ROOT lacks $(basename "$patch"); apply it with:" >&2
+            echo "  git -C $HIVEMIND_ROOT apply $patch" >&2
+            exit 1
+        fi
+    done
 fi
-echo "hivemind: $HIVEMIND_ROOT ($(git -C "$HIVEMIND_ROOT" rev-parse --short HEAD))"
+echo "hivemind: $HIVEMIND_ROOT ($(git -C "$HIVEMIND_ROOT" rev-parse --short HEAD) + ${#PATCHES[@]} patches)"
 
 emcmake cmake -S "$ENGINE_DIR" -B "$BUILD_DIR" -G Ninja \
     -DCMAKE_BUILD_TYPE=Release -DHIVEMIND_ROOT="$HIVEMIND_ROOT"

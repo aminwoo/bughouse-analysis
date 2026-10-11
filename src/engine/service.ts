@@ -167,7 +167,7 @@ interface CachedReview {
 }
 
 function cacheKey(gameKey: string) {
-  return `review:v2:${gameKey}`;
+  return `review:v3:${gameKey}`;
 }
 
 /** The saved review of a game, if it was made with the current network. */

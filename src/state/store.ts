@@ -30,9 +30,11 @@ const DEFAULT_SETTINGS: Settings = {
   multiPV: 1,
 };
 
+// Nodes per position and clock case. The WebGPU engine keeps about 384
+// positions in flight, so its searches need a few times that to stay sharp.
 export const REVIEW_NODES: Record<"webgpu" | "wasm", Record<ReviewDepth, number>> = {
-  webgpu: { fast: 400, normal: 1200, deep: 4000 },
-  wasm: { fast: 150, normal: 400, deep: 1200 },
+  webgpu: { fast: 1200, normal: 4000, deep: 12000 },
+  wasm: { fast: 200, normal: 600, deep: 1800 },
 };
 
 export interface EngineState {

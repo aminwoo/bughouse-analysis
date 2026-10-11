@@ -42,7 +42,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
         <label className="field">
           <span>CPU threads</span>
           <select value={settings.threads} onChange={(e) => setSettings({ threads: Number(e.target.value) })}>
-            <option value={0}>Automatic ({Math.max(1, Math.min(8, Math.floor(cores / 2)))})</option>
+            <option value={0}>Automatic ({Math.max(1, Math.min(16, cores - 1))})</option>
             {Array.from({ length: Math.min(16, cores) }, (_, i) => i + 1).map((n) => (
               <option key={n} value={n}>
                 {n}
@@ -103,7 +103,7 @@ export function AboutModal({ onClose }: { onClose: () => void }) {
         <h3>Reading the review</h3>
         <p>
           The evaluation is the expected score of the <em>white team</em> (White on board A with Black on board B). Hivemind decides for a whole team at once, so its suggestions are joint moves:
-          one move (or a sit) on each board. A move is marked an inaccuracy, mistake or blunder when it lowers its team's winning chances by 5, 10 or 15 percentage points.
+          one move (or a sit) on each board. A move is marked an inaccuracy (?!), mistake (?) or blunder (??) when its team's winning chances after it are 5, 10 or 15 percentage points below those after the engine's best move.
         </p>
         <h3>Keyboard</h3>
         <p className="kbd-list">

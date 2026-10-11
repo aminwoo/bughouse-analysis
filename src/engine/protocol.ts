@@ -30,7 +30,7 @@ export interface InferenceInit {
 
 export type InferenceMessage =
   | { type: "ready"; slots: number[]; warmupMs: number }
-  | { type: "stats"; positions: number; calls: number; busyMs: number; windowMs: number }
+  | { type: "stats"; positions: number; calls: number; busyMs: number; windowMs: number; readMs: number }
   | { type: "error"; message: string };
 
 export interface EngineInfo {
@@ -50,5 +50,5 @@ export type FromEngine =
   | { type: "status"; text: string; progress?: number }
   | { type: "ready"; info: EngineInfo }
   | { type: "line"; line: string }
-  | { type: "stats"; nps: number; busy: number; batchAvg: number; callMs: number }
+  | { type: "stats"; nps: number; busy: number; batchAvg: number; callMs: number; readMs: number }
   | { type: "error"; message: string };

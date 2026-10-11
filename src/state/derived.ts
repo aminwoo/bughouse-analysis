@@ -16,7 +16,8 @@ export function useReviews(): (MoveReview | null)[] {
 export function useSummary() {
   const game = useStore((s) => s.game);
   const reviews = useReviews();
-  return useMemo(() => summarize(game, reviews), [game, reviews]);
+  const curve = useWhiteCurve();
+  return useMemo(() => summarize(game, reviews, curve), [game, reviews, curve]);
 }
 
 /** Team white's value per mainline ply from the review (null where missing). */

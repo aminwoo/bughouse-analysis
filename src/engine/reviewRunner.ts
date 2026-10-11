@@ -2,7 +2,7 @@
 
 import { teamOf, BOARDS } from "../lib/bughouse";
 import type { GameRecord } from "../lib/game";
-import { engineRequestFor, type Tree } from "../lib/tree";
+import { engineMove, engineRequestFor, type Tree } from "../lib/tree";
 import { teamToSearch, type PositionEval, type PositionSearch } from "../lib/review";
 import type { EngineClient, SearchResult } from "./engineClient";
 
@@ -52,10 +52,25 @@ export async function runReview(engine: EngineClient, game: GameRecord, tree: Tr
       continue;
     }
     const request = engineRequestFor(tree, game, tree.mainline[ply]);
-    const withTA = await engine.search({ ...request, team, timeAdvantage: true, nodes: options.nodes });
-    if (options.isCancelled()) return;
-    const withoutTA = await engine.search({ ...request, team, timeAdvantage: false, nodes: options.nodes });
-    if (options.isCancelled()) return;
-    options.onEval({ ply, team, withTA: toSearch(withTA), withoutTA: toSearch(withoutTA) });
+    const next = game.moves[ply];
+    const search = async (timeAdvantage: boolean): Promise<PositionSearch | null> => {
+      const result = await engine.search({ ...request, team, timeAdvantage, nodes: options.nodes });
+      if (options.isCancelled()) return null;
+      const out = toSearch(result);
+      // Value the move actually played with a second search of this same
+      // position restricted to it, unless it was the engine's own choice.
+      const best = result.best ? (next?.board === "A" ? result.best.a : result.best.b) : undefined;
+      if (next && best !== next.uci) {
+        const forced = await engine.search({ ...request, team, timeAdvantage, nodes: options.nodes, searchMoves: [engineMove(next)] });
+        if (options.isCancelled()) return null;
+        if (forced.info) out.played = forced.info.value;
+      }
+      return out;
+    };
+    const withTA = await search(true);
+    if (!withTA) return;
+    const withoutTA = await search(false);
+    if (!withoutTA) return;
+    options.onEval({ ply, team, withTA, withoutTA });
   }
 }

@@ -2,7 +2,7 @@ import { useEffect, useRef, type ReactNode } from "react";
 import { useStore } from "../state/store";
 import { useReviews } from "../state/derived";
 import { getNode, type Tree, type TreeNode } from "../lib/tree";
-import { JUDGEMENTS, type MoveReview } from "../lib/review";
+import { JUDGEMENTS } from "../lib/review";
 import type { MainlineMove } from "../lib/game";
 
 const GLYPH: Record<string, string> = Object.fromEntries(JUDGEMENTS.map((j) => [j.name, j.glyph]));
@@ -106,23 +106,7 @@ export function MoveList() {
         {game.result?.message && tree.mainline.length > 1 && <div className="game-result">{game.result.message}</div>}
         {game.droppedMoves > 0 && <div className="game-result warn">{game.droppedMoves} moves could not be replayed and were left out.</div>}
       </div>
-      <ReviewLegend reviews={reviews} />
     </section>
-  );
-}
-
-function ReviewLegend({ reviews }: { reviews: (MoveReview | null)[] }) {
-  if (!reviews.some(Boolean)) return null;
-  return (
-    <div className="legend">
-      {JUDGEMENTS.slice()
-        .reverse()
-        .map((j) => (
-          <span key={j.name} className={`legend-item j-${j.name}`}>
-            <span className="glyph">{j.glyph}</span> {j.name}
-          </span>
-        ))}
-    </div>
   );
 }
 

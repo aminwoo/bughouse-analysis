@@ -1,7 +1,12 @@
 import { useStore, REVIEW_NODES, type ReviewDepth } from "../state/store";
 import { useReviews, useSummary } from "../state/derived";
 import { startReview, stopReview } from "../engine/service";
-import { teamOf } from "../lib/bughouse";
+import { teamOf, type BoardId } from "../lib/bughouse";
+import type { PlayerSummary, TeamSummary } from "../lib/review";
+import { teamNames } from "./EnginePanel";
+
+type Judgement = "inaccuracy" | "mistake" | "blunder";
+const COUNTS: Judgement[] = ["inaccuracy", "mistake", "blunder"];
 
 const DEPTHS: { value: ReviewDepth; label: string }[] = [
   { value: "fast", label: "Fast" },
@@ -27,13 +32,24 @@ export function ReviewPanel() {
   const playerName = (board: "A" | "B", color: "white" | "black") =>
     game.players[`${board === "A" ? "a" : "b"}${color === "white" ? "White" : "Black"}` as keyof typeof game.players].username;
 
-  const jumpTo = (board: "A" | "B", color: "white" | "black", judgement: "inaccuracy" | "mistake" | "blunder") => {
+  /** Jumps to the next move after the cursor with `judgement` by the given movers. */
+  const jumpTo = (judgement: Judgement, moverMatches: (board: BoardId, color: "white" | "black") => boolean) => {
     const cursorPly = tree.nodes.get(useStore.getState().cursor)?.ply ?? 0;
-    const matches = reviews.filter((r) => r && r.judgement === judgement && game.moves[r.ply - 1].board === board && game.moves[r.ply - 1].color === color);
+    const matches = reviews.filter((r) => r && r.judgement === judgement && moverMatches(game.moves[r.ply - 1].board, game.moves[r.ply - 1].color));
     if (!matches.length) return;
     const next = matches.find((r) => r!.ply > cursorPly) ?? matches[0];
     goto(tree.mainline[next!.ply]);
   };
+
+  const counts = (row: PlayerSummary | TeamSummary, moverMatches: (board: BoardId, color: "white" | "black") => boolean) =>
+    COUNTS.map((j) => (
+      <td key={j}>
+        <button className={`count j-${j}`} disabled={!row[j]} onClick={() => jumpTo(j, moverMatches)}>
+          {row[j]}
+        </button>
+      </td>
+    ));
+  const accuracy = (row: PlayerSummary | TeamSummary) => (row.accuracy != null ? `${Math.round(row.accuracy)}%` : "–");
 
   return (
     <section className="panel review-panel">
@@ -73,7 +89,7 @@ export function ReviewPanel() {
         <table className="summary">
           <thead>
             <tr>
-              <th>Player</th>
+              <th>Team / player</th>
               <th title="Average accuracy">Acc.</th>
               <th className="j-inaccuracy" title="Inaccuracies">
                 ?!
@@ -86,25 +102,29 @@ export function ReviewPanel() {
               </th>
             </tr>
           </thead>
-          <tbody>
-            {summary.map((s) => (
-              <tr key={`${s.board}${s.color}`} className={`team-${teamOf(s.board, s.color)}`}>
-                <td>
-                  <span className={`seat-dot ${s.color}`} />
-                  <span className="seat-board">{s.board}</span>
-                  {playerName(s.board, s.color)}
+          {summary.map((team) => (
+            <tbody key={team.team} className={`team-group team-${team.team}`}>
+              <tr className="team-row">
+                <td title={teamNames(game, team.team)}>
+                  <span className={`seat-dot ${team.team}`} />
+                  {teamNames(game, team.team)}
                 </td>
-                <td>{s.accuracy != null ? `${Math.round(s.accuracy)}%` : "–"}</td>
-                {(["inaccuracy", "mistake", "blunder"] as const).map((j) => (
-                  <td key={j}>
-                    <button className={`count j-${j}`} disabled={!s[j]} onClick={() => jumpTo(s.board, s.color, j)}>
-                      {s[j]}
-                    </button>
-                  </td>
-                ))}
+                <td>{accuracy(team)}</td>
+                {counts(team, (board, color) => teamOf(board, color) === team.team)}
               </tr>
-            ))}
-          </tbody>
+              {team.players.map((p) => (
+                <tr key={`${p.board}${p.color}`} className="player-row">
+                  <td>
+                    <span className={`seat-dot ${p.color}`} />
+                    <span className="seat-board">{p.board}</span>
+                    {playerName(p.board, p.color)}
+                  </td>
+                  <td>{accuracy(p)}</td>
+                  {counts(p, (board, color) => board === p.board && color === p.color)}
+                </tr>
+              ))}
+            </tbody>
+          ))}
         </table>
       )}
     </section>

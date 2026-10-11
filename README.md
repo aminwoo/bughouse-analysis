@@ -41,10 +41,20 @@ searched twice (`TimeAdvantage true` and `false`) and the two values are blended
 - **Ignore the clocks**: weigh both equally, a pure board evaluation.
 - **Engine's view**: use only the search matching who is actually ahead, as hivemind plays.
 
-A move is judged by how much it lowers its team's blended value (on a −1…1 scale:
-0.1 inaccuracy, 0.2 mistake, 0.3 blunder). The weight is held fixed across the move
-so that thinking time alone is not counted against it. Each mainline position is
-searched for the team that moved next in the game.
+Each mainline position is searched for the team that moved next in the game. When
+that search prefers a different move from the one played, the same position is
+searched again with the root restricted to the played move (`go … searchmoves`, see
+`engine/patches/`). The other board stays free. A move is judged by how far its
+blended value falls below the engine's best (on a −1…1 scale: 0.1 inaccuracy, 0.2
+mistake, 0.3 blunder). Both values come from the same position, team and clock
+setting, so the comparison never mixes searches made for different teams. The
+weight is that of the position before the move, so thinking time alone is not
+counted against it.
+
+Accuracy follows lichess's formula. Each move scores 0–100 from its win-percentage
+drop. A player's or team's accuracy is the average of two means of those scores: a
+mean weighted by how volatile the evaluation was around each move, and the harmonic
+mean, which keeps a few bad moves from being hidden by many easy ones.
 
 ## Architecture
 
@@ -111,6 +121,21 @@ encoding changes, and move `HIVEMIND_COMMIT` to match.
 and `npx tsx engine/test/review.ts A.json B.json [nodes]` reviews a saved chess.com
 game headlessly. `bench.html` and `engine-test.html` are development pages for
 measuring network and search speed.
+
+To measure speed:
+
+- `npx tsx engine/test/bench.ts --fake` measures the search alone (inference
+  answered instantly) for several thread counts.
+- `npx tsx engine/test/gpu-bench.ts` runs `engine-test.html` in a separate headless
+  Chrome on the real GPU and reports nodes per second, positions per GPU call and
+  call times for each `--configs` entry (`slots x GPU workers`, or threads with
+  `--backend wasm`). It needs the dev server running.
+
+On an RTX 4070 with an i5-12400F, the defaults (48 search slots × batch 8 over 3 GPU
+workers) reach about 8,000–9,000 nodes per second on WebGPU. On the CPU,
+11 threads reach about 475. With that many positions in flight, review searches
+use 4,000 nodes per position and clock case on Normal, and a Normal review of the
+97-ply sample game takes about 3 minutes.
 
 ## Deployment
 

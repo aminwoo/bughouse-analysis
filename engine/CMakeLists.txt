@@ -21,7 +21,15 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(HM_SRC "${HIVEMIND_ROOT}/engine/src")
 set(FS_SRC "${HM_SRC}/Fairy-Stockfish/src")
 
+# The search allocates tree nodes from every thread; emscripten's default
+# dlmalloc serialises them on one lock.
+set(HIVEMIND_MALLOC "mimalloc" CACHE STRING "Emscripten allocator: mimalloc or dlmalloc")
+option(HIVEMIND_LTO "Link-time optimisation (no measurable gain)" OFF)
+
 set(COMMON_FLAGS -O3 -msimd128 -pthread -fwasm-exceptions)
+if(HIVEMIND_LTO)
+    list(APPEND COMMON_FLAGS -flto)
+endif()
 set(COMMON_DEFINITIONS
     NDEBUG NNUE_EMBEDDING_OFF IS_64BIT USE_POPCNT
     HIVEMIND_BACKEND_WEB
@@ -77,11 +85,12 @@ target_compile_definitions(hivemind PRIVATE ${COMMON_DEFINITIONS})
 target_link_libraries(hivemind PRIVATE fairy)
 
 set(HIVEMIND_LINK_FLAGS
-    -O3
-    -pthread
-    -fwasm-exceptions
+    ${COMMON_FLAGS}
+    -sMALLOC=${HIVEMIND_MALLOC}
     -sPROXY_TO_PTHREAD=1
-    -sPTHREAD_POOL_SIZE=16
+    # Set by the caller (createHivemind's pthreadPoolSize) from the number of
+    # search slots, so every thread is ready before the first search.
+    -sPTHREAD_POOL_SIZE=Module.pthreadPoolSize
     -sPTHREAD_POOL_SIZE_STRICT=0
     -sALLOW_MEMORY_GROWTH=1
     -sINITIAL_MEMORY=268435456

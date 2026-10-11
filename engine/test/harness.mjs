@@ -18,6 +18,8 @@ const opt = (name, fallback) => {
   return value;
 };
 const engines = Number(opt("--engines", "2"));
+const fake = args.includes("--fake");
+if (fake) args.splice(args.indexOf("--fake"), 1);
 const batch = Number(opt("--batch", "8"));
 const modelPath = path.resolve(opt("--model", path.join(root, "public/engine/twin-s.onnx")));
 const enginePath = path.resolve(opt("--engine", path.join(root, "engine/build/hivemind.js")));
@@ -35,6 +37,7 @@ const ready = waitFor((l) => l.includes("hivemind web ready") || l.includes("fai
 const t0 = performance.now();
 const mod = await createHivemind({
   arguments: ["--engines", String(engines), "--batch-size", String(batch), "--model", "/model.onnx"],
+  pthreadPoolSize: engines + 8,
   print: onLine,
   printErr: (l) => console.error("[err]", l),
   preRun: [(m) => m.FS.writeFile("/model.onnx", "placeholder")],
@@ -46,7 +49,7 @@ const registryPtr = mod._hm_inference_registry();
 const workers = [];
 for (let i = 0; i < engines; i++) {
   const w = new Worker(path.join(here, "inference-worker.mjs"), {
-    workerData: { memory: mod.wasmMemory, registryPtr, slotIndices: [i], modelPath, merge: false },
+    workerData: { memory: mod.wasmMemory, registryPtr, slotIndices: [i], modelPath, merge: false, fake },
   });
   await new Promise((resolve) => w.once("message", resolve));
   workers.push(w);
@@ -68,9 +71,13 @@ for (const cmd of commands) {
   if (cmd === "isready") await waitFor((l) => l === "readyok");
 }
 send("stop");
-const stats = await Promise.all(workers.map((w) => new Promise((resolve) => {
-  w.once("message", resolve);
-  w.postMessage("stats");
-})));
+// A worker blocked in Atomics.wait cannot answer, so give up after a moment.
+const stats = await Promise.all(workers.map((w) => Promise.race([
+  new Promise((resolve) => {
+    w.once("message", resolve);
+    w.postMessage("stats");
+  }),
+  new Promise((resolve) => setTimeout(() => resolve(null), 500)),
+])));
 console.error("[harness] inference stats", stats);
 process.exit(0);
