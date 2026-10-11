@@ -17,6 +17,8 @@ export interface EngineConfig {
   gpuWorkers?: number;
   /** Network to load (see resolveNetwork); the bundled copy when omitted. */
   network?: NetworkInfo;
+  /** Run the FP16 network on GPUs with FP16 shaders (default true). */
+  fp16?: boolean;
 }
 
 export interface InferenceInit {
@@ -26,10 +28,12 @@ export interface InferenceInit {
   backend: InferenceBackend;
   /** Network bytes; each worker gets its own copy. */
   model: Uint8Array;
+  /** `model` is the FP16 network; on failure the worker falls back to FP32. */
+  fp16: boolean;
 }
 
 export type InferenceMessage =
-  | { type: "ready"; slots: number[]; warmupMs: number }
+  | { type: "ready"; slots: number[]; warmupMs: number; fp16: boolean }
   | { type: "stats"; positions: number; calls: number; busyMs: number; windowMs: number; readMs: number }
   | { type: "error"; message: string };
 
@@ -38,6 +42,8 @@ export interface EngineInfo {
   slots: number;
   batch: number;
   gpu?: string;
+  /** Whether the GPU runs the network in half precision. */
+  fp16: boolean;
   /** The network actually loaded, which may be a fallback. */
   network: NetworkInfo;
 }

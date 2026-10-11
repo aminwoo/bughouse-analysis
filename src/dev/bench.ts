@@ -1,11 +1,16 @@
 // Dev-only: measures onnxruntime-web throughput for the network per backend.
+import { splitsToSlices } from "../engine/onnxRewrite";
+
 type Ort = typeof import("onnxruntime-web");
 const out = document.getElementById("out")!;
 const log = (s: string) => { out.textContent += "\n" + s; console.log(s); };
 const q = new URLSearchParams(location.search);
 
+// ?model=fp16 benchmarks the published FP16 file instead of the FP32 copy.
 async function loadModel() {
-  return new Uint8Array(await (await fetch("/engine/twin-s.onnx")).arrayBuffer());
+  if (q.get("model") !== "fp16") return new Uint8Array(await (await fetch("/engine/twin-s.onnx")).arrayBuffer());
+  const url = "https://huggingface.co/aminwoo/bughouse-twin-s/resolve/main/twin-s-noattn.onnx";
+  return splitsToSlices(new Uint8Array(await (await fetch(url)).arrayBuffer())).model;
 }
 
 async function bench(label: string, ort: Ort, ep: string, sizes: number[], extra: Record<string, unknown> = {}) {
@@ -73,8 +78,9 @@ async function benchBreakdown(ort: Ort, sizes: number[]) {
       executionProviders: [layout ? ({ name: "webgpu", preferredLayout: layout } as never) : "webgpu"],
       graphOptimizationLevel: "all",
       freeDimensionOverrides: { batch: b },
-      enableGraphCapture: true,
+      enableGraphCapture: !q.get("verbose"),
       preferredOutputLocation: "gpu-buffer",
+      ...(q.get("verbose") ? { logSeverityLevel: 0, logVerbosityLevel: 0 } : {}),
     });
     const device = (await ort.env.webgpu.device) as GPUDevice;
     const inputBuffer = device.createBuffer({ size: b * 74 * 64 * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC });
@@ -124,6 +130,18 @@ async function benchBreakdown(ort: Ort, sizes: number[]) {
     }
     log(`batch=${b}: ${line.join(", ")}`);
     await session.release();
+  }
+}
+
+// ?verbose=1 copies onnxruntime's node placement log onto the page.
+if (q.get("verbose")) {
+  for (const level of ["log", "warn", "error", "info", "debug"] as const) {
+    const original = console[level].bind(console);
+    console[level] = (...args: unknown[]) => {
+      const text = args.map(String).join(" ");
+      if (/placed|Provider|fallback|not supported|FP16|float16|MLFloat16|kernel/i.test(text)) out.textContent += "\n" + text.slice(0, 400);
+      original(...args);
+    };
   }
 }
 

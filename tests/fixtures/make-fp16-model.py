@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Writes tiny-fp16.onnx, a small FP16 network for tests/onnxFp32.test.ts.
+"""Writes tiny-fp16.onnx, a small FP16 network for tests/onnxRewrite.test.ts.
 
 It has FP32 inputs and outputs around FP16 internals like the published
 hivemind networks, plus an FP16 Constant attribute, an initializer stored in

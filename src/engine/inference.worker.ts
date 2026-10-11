@@ -7,6 +7,7 @@
 // serve one slot on a single CPU thread.
 
 import { mapOutputNames, readRegistry, serveSlots, type NetworkOutputs, type NetworkRunner } from "./inferenceCore";
+import { convertToFp32 } from "./onnxRewrite";
 import type { InferenceInit, InferenceMessage } from "./protocol";
 
 type Ort = typeof import("onnxruntime-web");
@@ -148,12 +149,27 @@ self.onmessage = async (event: MessageEvent<InferenceInit | "stop">) => {
     const capacity = slots.reduce((sum, slot) => sum + slot.batch, 0) || 1;
 
     let run: NetworkRunner;
+    let fp16 = init.fp16;
+    let gpuFp32: () => Promise<NetworkRunner> = () => Promise.reject(new Error("not on WebGPU"));
     if (init.backend === "webgpu") {
+      const gpuRunner = async (model: Uint8Array) => {
+        try {
+          return await capturedRunner(ort, model, capacity, slots[0]?.batch ?? capacity, registry.inputValues);
+        } catch (error) {
+          // FP16 without graph capture is not worth it: some node fell back to the CPU.
+          if (fp16) throw error;
+          console.warn("graph capture unavailable, using plain WebGPU", error);
+          return await plainRunner(ort, model, "webgpu");
+        }
+      };
+      gpuFp32 = () => gpuRunner(convertToFp32(init.model).model);
       try {
-        run = await capturedRunner(ort, init.model, capacity, slots[0]?.batch ?? capacity, registry.inputValues);
+        run = await gpuRunner(init.model);
       } catch (error) {
-        console.warn("graph capture unavailable, using plain WebGPU", error);
-        run = await plainRunner(ort, init.model, "webgpu");
+        if (!fp16) throw error;
+        console.warn("FP16 network unavailable, using FP32", error);
+        fp16 = false;
+        run = await gpuFp32();
       }
     } else {
       run = await plainRunner(ort, init.model, "wasm");
@@ -167,7 +183,24 @@ self.onmessage = async (event: MessageEvent<InferenceInit | "stop">) => {
       await run(new Float32Array(size * registry.inputValues), size);
       await run(new Float32Array(size * registry.inputValues), size);
     }
-    post({ type: "ready", slots: slots.map((s) => s.index), warmupMs: performance.now() - warmStart });
+    post({ type: "ready", slots: slots.map((s) => s.index), warmupMs: performance.now() - warmStart, fp16 });
+
+    if (fp16) {
+      // Browsers hold FP16 back on drivers with known bugs; should one slip
+      // through and return garbage, switch to FP32 for good.
+      const half = run;
+      let full: Promise<NetworkRunner> | null = null;
+      run = async (input, batch) => {
+        if (!full) {
+          const out = await half(input, batch);
+          if (out.value.subarray(0, batch).every(Number.isFinite)) return out;
+          console.warn("FP16 network returned non-finite values, switching to FP32");
+          fp16 = false;
+          full = gpuFp32();
+        }
+        return (await full)(input, batch);
+      };
+    }
 
     let positions = 0;
     let calls = 0;

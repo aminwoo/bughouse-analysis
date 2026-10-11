@@ -1,13 +1,19 @@
-// FP16 -> FP32 conversion of an ONNX network, in the browser.
+// Rewrites of an ONNX network in the browser, working on the protobuf wire
+// format directly and copying every other field through untouched.
 //
-// The published hivemind networks store FP16 weights. onnxruntime-web's CPU
-// backend has no FP16 kernels and wraps every node in casts, so the engine runs
-// an FP32 copy. This mirrors hivemind's engine/scripts/convert_onnx_fp32.py:
-// FP16 initializers and attribute tensors become FP32, FP16 value infos are
-// retyped and Cast-to-FP16 nodes cast to FP32 instead. It rewrites the protobuf
-// wire format directly and copies every other field through untouched.
+// convertToFp32: the published hivemind networks store FP16 weights.
+// onnxruntime-web's CPU backend has no FP16 kernels and wraps every node in
+// casts, so the CPU engine runs an FP32 copy. This mirrors hivemind's
+// engine/scripts/convert_onnx_fp32.py: FP16 initializers and attribute tensors
+// become FP32, FP16 value infos are retyped and Cast-to-FP16 nodes cast to FP32
+// instead.
+//
+// splitsToSlices: onnxruntime-web's WebGPU backend has no FP16 Split kernel,
+// so the FP16 network's Split nodes would run on the CPU and rule out graph
+// capture. Each becomes one Slice per output.
 
 const FLOAT = 1;
+const INT64 = 7;
 const FLOAT16 = 10;
 
 const VARINT = 0;
@@ -316,4 +322,122 @@ export function convertToFp32(model: Uint8Array): ConvertedNetwork {
     if (f.num === 12 && f.wire === LEN) outputs.push(tensorInfo(f.bytes));
   }
   return { model: converter.converted ? converted : model, inputs, outputs, converted: converter.converted };
+}
+
+/** A node's inputs, outputs, name, type and attributes (by name). */
+interface NodeFields {
+  inputs: string[];
+  outputs: string[];
+  name: string;
+  opType: string;
+  domain: string;
+  attributes: Map<string, Uint8Array>;
+}
+
+// NodeProto: input 1, output 2, name 3, op_type 4, attribute 5, domain 7.
+function readNode(buf: Uint8Array): NodeFields {
+  const node: NodeFields = { inputs: [], outputs: [], name: "", opType: "", domain: "", attributes: new Map() };
+  for (const f of fields(buf)) {
+    if (f.wire !== LEN) continue;
+    if (f.num === 1) node.inputs.push(utf8.decode(f.bytes));
+    else if (f.num === 2) node.outputs.push(utf8.decode(f.bytes));
+    else if (f.num === 3) node.name = utf8.decode(f.bytes);
+    else if (f.num === 4) node.opType = utf8.decode(f.bytes);
+    else if (f.num === 7) node.domain = utf8.decode(f.bytes);
+    else if (f.num === 5) {
+      for (const a of fields(f.bytes)) if (a.num === 1 && a.wire === LEN) node.attributes.set(utf8.decode(a.bytes), f.bytes);
+    }
+  }
+  return node;
+}
+
+/** An integer attribute (AttributeProto.i 3), if it is small and not negative. */
+function intAttribute(node: NodeFields, name: string): number | undefined {
+  const attribute = node.attributes.get(name);
+  if (!attribute) return undefined;
+  for (const f of fields(attribute)) if (f.num === 3 && f.wire === VARINT && f.int < 2 ** 31) return f.int;
+  return undefined;
+}
+
+/** The values of an INT64 tensor (TensorProto: data_type 2, int64_data 7, name 8, raw_data 9). */
+function int64Tensor(buf: Uint8Array): { name: string; values: number[] } | undefined {
+  let dataType = 0;
+  let name = "";
+  let raw: Uint8Array | null = null;
+  const values: number[] = [];
+  for (const f of fields(buf)) {
+    if (f.num === 2 && f.wire === VARINT) dataType = f.int;
+    else if (f.num === 8 && f.wire === LEN) name = utf8.decode(f.bytes);
+    else if (f.num === 7) values.push(...(f.wire === LEN ? packedVarints(f.bytes) : [f.int]));
+    else if (f.num === 9 && f.wire === LEN) raw = f.bytes;
+  }
+  if (dataType !== INT64) return undefined;
+  // raw_data is little-endian; copy it so the view is aligned.
+  if (raw) values.push(...Array.from(new BigInt64Array(raw.slice().buffer), Number));
+  return { name, values };
+}
+
+const utf8Encoder = new TextEncoder();
+
+function int64Initializer(name: string, values: number[]): Uint8Array {
+  const out = new Writer();
+  out.varintField(1, values.length);
+  out.varintField(2, INT64);
+  out.bytesField(8, utf8Encoder.encode(name));
+  out.bytesField(9, new Uint8Array(BigInt64Array.from(values, BigInt).buffer));
+  return out.finish();
+}
+
+function sliceNode(name: string, inputs: string[], output: string): Uint8Array {
+  const out = new Writer();
+  for (const input of inputs) out.bytesField(1, utf8Encoder.encode(input));
+  out.bytesField(2, utf8Encoder.encode(output));
+  out.bytesField(3, utf8Encoder.encode(name));
+  out.bytesField(4, utf8Encoder.encode("Slice"));
+  return out.finish();
+}
+
+/**
+ * Replaces each Split whose sizes are a constant input (opset 13+) with one
+ * Slice per output. Splits it cannot read are left alone.
+ */
+export function splitsToSlices(model: Uint8Array): { model: Uint8Array; replaced: number } {
+  let replaced = 0;
+  // ModelProto.graph 7; GraphProto: node 1, initializer 5.
+  const rewritten = rewriteMessage(model, (f) => {
+    if (f.num !== 7) return undefined;
+    const ints = new Map<string, number[]>();
+    for (const g of fields(f.bytes)) {
+      if (g.num !== 5 || g.wire !== LEN) continue;
+      const tensor = int64Tensor(g.bytes);
+      if (tensor) ints.set(tensor.name, tensor.values);
+    }
+    const graph = new Writer();
+    const initializers: Uint8Array[] = [];
+    for (const g of fields(f.bytes)) {
+      if (g.num === 1 && g.wire === LEN) {
+        const node = readNode(g.bytes);
+        const axis = node.opType === "Split" && !node.domain ? intAttribute(node, "axis") ?? 0 : undefined;
+        const sizes = node.inputs[1] ? ints.get(node.inputs[1]) : undefined;
+        if (axis !== undefined && sizes?.length === node.outputs.length && sizes.every((n) => n >= 0)) {
+          const prefix = `${node.name || node.outputs[0]}/as_slice`;
+          initializers.push(int64Initializer(`${prefix}/axes`, [axis]));
+          let start = 0;
+          node.outputs.forEach((output, i) => {
+            const bounds = [`${prefix}/starts_${i}`, `${prefix}/ends_${i}`];
+            initializers.push(int64Initializer(bounds[0], [start]), int64Initializer(bounds[1], [start + sizes[i]]));
+            start += sizes[i];
+            // An empty output name means the output is unused.
+            if (output) graph.bytesField(1, sliceNode(`${prefix}_${i}`, [node.inputs[0], ...bounds, `${prefix}/axes`], output));
+          });
+          replaced++;
+          continue;
+        }
+      }
+      graph.raw(g.raw);
+    }
+    for (const initializer of initializers) graph.bytesField(5, initializer);
+    return replaced ? graph.finish() : undefined;
+  });
+  return { model: replaced ? rewritten : model, replaced };
 }

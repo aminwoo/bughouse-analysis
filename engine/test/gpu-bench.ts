@@ -4,6 +4,8 @@
 //
 //   npx tsx engine/test/gpu-bench.ts [--url http://localhost:5173] [--nodes 20000] [--backend webgpu]
 //       [--configs 8x2,16x2,16x4]   # slots x GPU workers (WebGPU) or threads (wasm)
+//       [--fp16 0]                  # force FP32 on GPUs with FP16 shaders
+//       [--nvidia-f16]              # let Chrome use FP16 on NVIDIA's Vulkan driver (Linux)
 //
 // Needs the dev server running (npm run dev).
 
@@ -27,6 +29,7 @@ const base = opt("--url", "http://localhost:5173");
 const nodes = Number(opt("--nodes", "20000"));
 const backend = opt("--backend", "webgpu");
 const configs = opt("--configs", backend === "webgpu" ? "8x2,16x2,16x4,32x4" : "6,8,12").split(",");
+const fp16 = opt("--fp16", "1");
 const port = 9333;
 
 // A middlegame position from the sample game, where the trees are realistic.
@@ -46,11 +49,18 @@ const chrome = spawn("google-chrome", [
   "--enable-features=Vulkan",
   "--disable-vulkan-surface",
   "--enable-unsafe-webgpu",
+  // Dawn holds FP16 back on NVIDIA's Vulkan driver unless asked.
+  ...(args.includes("--nvidia-f16") ? ["--enable-dawn-features=vulkan_enable_f16_on_nvidia"] : []),
   "about:blank",
 ]);
 const stop = () => {
   chrome.kill();
-  rmSync(profile, { recursive: true, force: true });
+  // Chrome's processes may still be writing the profile as they exit.
+  try {
+    rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  } catch {
+    console.warn(`could not remove ${profile}`);
+  }
 };
 process.on("exit", stop);
 
@@ -93,6 +103,7 @@ for (const config of configs) {
     moves: position.moves.join(","),
     team: position.team,
     ta: "false",
+    fp16,
     ...(backend === "webgpu" ? { slots: String(slots), gpuw: String(gpuWorkers ?? 2) } : { threads: String(slots) }),
   });
   const started = performance.now();
@@ -113,7 +124,7 @@ for (const config of configs) {
   const mean = (key: "busy" | "batchAvg" | "callMs" | "readMs") => stats.reduce((sum, s) => sum + s[key], 0) / Math.max(1, stats.length);
   rows.push({
     config,
-    backend: result.info.backend,
+    backend: result.info.backend + ((result.info as { fp16?: boolean }).fp16 ? " fp16" : ""),
     nps: Math.round((result.result.info.nodes * 1000) / result.ms),
     "batch/call": Number(mean("batchAvg").toFixed(1)),
     "call ms": Number(mean("callMs").toFixed(1)),

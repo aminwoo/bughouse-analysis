@@ -39,7 +39,7 @@ export function ensureEngine(): Promise<EngineClient> {
 
 function startEngine(backend: "auto" | "webgpu" | "wasm", network: NetworkInfo | undefined, notice?: string): Promise<EngineClient> {
   const { settings, setEngine } = useStore.getState();
-  const engine = new EngineClient({ backend, threads: settings.threads, batchSize: 8, network });
+  const engine = new EngineClient({ backend, threads: settings.threads, batchSize: 8, network, fp16: settings.fp16 });
   client = engine;
   setEngine({ status: "loading", message: notice ?? "Starting engine", progress: undefined });
   engine.onStatus((m) => {
@@ -244,7 +244,7 @@ useStore.subscribe((state, prev) => {
     if (state.live.enabled) scheduleLive();
     else if (prev.live.enabled) stopLive();
   }
-  if (state.settings.backend !== prev.settings.backend || state.settings.threads !== prev.settings.threads) {
+  if (state.settings.backend !== prev.settings.backend || state.settings.threads !== prev.settings.threads || state.settings.fp16 !== prev.settings.fp16) {
     if (client) restartEngine();
   }
 });

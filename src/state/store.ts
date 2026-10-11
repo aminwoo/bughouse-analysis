@@ -17,6 +17,8 @@ export interface Settings {
   depth: ReviewDepth;
   backend: "auto" | "webgpu" | "wasm";
   threads: number;
+  /** Half precision on GPUs that support it. */
+  fp16: boolean;
   arrows: boolean;
   multiPV: number;
 }
@@ -26,6 +28,7 @@ const DEFAULT_SETTINGS: Settings = {
   depth: "normal",
   backend: "auto",
   threads: 0,
+  fp16: true,
   arrows: true,
   multiPV: 1,
 };

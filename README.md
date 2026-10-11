@@ -76,10 +76,12 @@ page (React)
 - `src/engine/network.ts` picks the network. On each visit it asks the Hugging Face
   API for the sha256 of `twin-s-noattn.onnx` on `main`. It downloads the file only
   when that hash changes, checks the download against it and keeps it in IndexedDB.
-  `onnxFp32.ts` then converts the FP16 weights to FP32, because onnxruntime-web's
-  CPU backend has no FP16 kernels. If Hugging Face is unreachable, or the new
-  network does not fit this engine build (74×8×8 input, value/policy/WDL/moves-left
-  outputs), the engine uses the last saved network. Failing that it uses the copy
+  GPUs with FP16 shaders run that FP16 file as published, except that
+  `onnxRewrite.ts` turns its Split nodes into Slices, which onnxruntime-web's
+  WebGPU backend has in FP16. Everywhere else `onnxRewrite.ts` converts the
+  weights to FP32, since the CPU backend has no FP16 kernels. If Hugging Face
+  is unreachable, or the new network does not fit this engine build (74×8×8
+  input, value/policy/WDL/moves-left outputs), the engine uses the last saved network. Failing that it uses the copy
   in `public/engine`, and the engine panel shows "older network". Saved reviews
   record which network made them and are discarded when it changes.
 - `src/engine/` drives the engine over UCI (`engineClient.ts`), schedules live analysis
@@ -129,13 +131,17 @@ To measure speed:
 - `npx tsx engine/test/gpu-bench.ts` runs `engine-test.html` in a separate headless
   Chrome on the real GPU and reports nodes per second, positions per GPU call and
   call times for each `--configs` entry (`slots x GPU workers`, or threads with
-  `--backend wasm`). It needs the dev server running.
+  `--backend wasm`). It needs the dev server running. `--fp16 0` forces FP32, and
+  `--nvidia-f16` lets Chrome use FP16 on NVIDIA's Vulkan driver, where it is off
+  by default.
 
 On an RTX 4070 with an i5-12400F, the defaults (48 search slots × batch 8 over 3 GPU
 workers) reach about 8,000–9,000 nodes per second on WebGPU. On the CPU,
 11 threads reach about 475. With that many positions in flight, review searches
 use 4,000 nodes per position and clock case on Normal, and a Normal review of the
-97-ply sample game takes about 3 minutes.
+97-ply sample game takes about 2 minutes (it averages the full 9,500 nodes per
+second of a long search). FP16 makes a network call 15–28% faster for 128–256
+positions and the review about 7% faster.
 
 ## Deployment
 

@@ -7,6 +7,7 @@
 
 import type { EngineConfig, EngineInfo, FromEngine, InferenceBackend, InferenceMessage, ToEngine } from "./protocol";
 import { loadNetwork } from "./network";
+import { splitsToSlices } from "./onnxRewrite";
 
 interface HivemindModule {
   ccall: (name: string, ret: null, types: string[], args: unknown[]) => void;
@@ -22,7 +23,7 @@ let module: HivemindModule | null = null;
 const inferenceWorkers: Worker[] = [];
 let pendingCommands: string[] = [];
 
-async function detectBackend(config: EngineConfig): Promise<{ backend: InferenceBackend; gpu?: string }> {
+async function detectBackend(config: EngineConfig): Promise<{ backend: InferenceBackend; gpu?: string; f16?: boolean }> {
   if (config.backend === "wasm") return { backend: "wasm" };
   const gpu = (navigator as Navigator & { gpu?: GPU }).gpu;
   if (gpu) {
@@ -32,7 +33,7 @@ async function detectBackend(config: EngineConfig): Promise<{ backend: Inference
       if (adapter) {
         const info = adapter.info;
         const name = [info?.vendor, info?.architecture, info?.description].filter(Boolean).join(" ");
-        return { backend: "webgpu", gpu: name || "WebGPU" };
+        return { backend: "webgpu", gpu: name || "WebGPU", f16: adapter.features.has("shader-f16") };
       }
     } catch {
       // Fall through to the CPU.
@@ -69,7 +70,7 @@ async function init(config: EngineConfig, base: string) {
   if (!self.crossOriginIsolated) {
     throw new Error("This page is not cross-origin isolated, so the engine cannot use threads.");
   }
-  const { backend, gpu } = await detectBackend(config);
+  const { backend, gpu, f16 } = await detectBackend(config);
   const cores = navigator.hardwareConcurrency || 4;
   // CPU: one single-threaded inference worker per logical core but one, which
   // measured faster than leaving the hyperthreads idle.
@@ -83,7 +84,10 @@ async function init(config: EngineConfig, base: string) {
 
   post({ type: "status", text: "Loading network" });
   const network = await loadNetwork(config.network, base, fetchWithProgress);
-  const model = network.model;
+  // GPUs with FP16 shaders run the published FP16 network as is, apart from
+  // its Split nodes, which onnxruntime's WebGPU backend lacks in FP16.
+  const useFp16 = backend === "webgpu" && !!f16 && config.fp16 !== false && !!network.fp16;
+  const model = useFp16 ? splitsToSlices(network.fp16!).model : network.model;
 
   post({ type: "status", text: "Starting engine" });
   const engineUrl = new URL(`${base}engine/hivemind.js`, self.location.origin).href;
@@ -119,6 +123,7 @@ async function init(config: EngineConfig, base: string) {
   let busyMs = 0;
   let readMs = 0;
   let windowMs = 0;
+  let fp16 = useFp16;
   await Promise.all(
     groups.map(
       (group) =>
@@ -127,7 +132,10 @@ async function init(config: EngineConfig, base: string) {
           inferenceWorkers.push(worker);
           worker.onmessage = (event: MessageEvent<InferenceMessage>) => {
             const message = event.data;
-            if (message.type === "ready") resolve();
+            if (message.type === "ready") {
+              fp16 &&= message.fp16;
+              resolve();
+            }
             else if (message.type === "error") reject(new Error(message.message));
             else if (message.type === "stats") {
               positions += message.positions;
@@ -138,7 +146,7 @@ async function init(config: EngineConfig, base: string) {
             }
           };
           worker.onerror = (event) => reject(new Error(event.message || "inference worker failed"));
-          worker.postMessage({ memory: module!.wasmMemory, registryPtr, slots: group, backend, model: model.slice() });
+          worker.postMessage({ memory: module!.wasmMemory, registryPtr, slots: group, backend, model: model.slice(), fp16: useFp16 });
         }),
     ),
   );
@@ -160,7 +168,7 @@ async function init(config: EngineConfig, base: string) {
     windowMs = 0;
   }, 1000);
 
-  const info: EngineInfo = { backend, slots, batch, gpu, network: network.info };
+  const info: EngineInfo = { backend, slots, batch, gpu, fp16, network: network.info };
   post({ type: "ready", info });
   for (const cmd of pendingCommands) send(cmd);
   pendingCommands = [];

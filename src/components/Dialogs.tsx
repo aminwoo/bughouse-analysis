@@ -39,6 +39,10 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
             <option value="wasm">CPU only</option>
           </select>
         </label>
+        <label className="check" title="Faster on most GPUs; turn off if evaluations look wrong">
+          <input type="checkbox" checked={settings.fp16} onChange={(e) => setSettings({ fp16: e.target.checked })} />
+          Half precision (FP16) on GPUs that support it
+        </label>
         <label className="field">
           <span>CPU threads</span>
           <select value={settings.threads} onChange={(e) => setSettings({ threads: Number(e.target.value) })}>

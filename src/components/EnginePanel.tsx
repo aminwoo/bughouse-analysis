@@ -36,7 +36,7 @@ export function EnginePanel() {
 
   const backendLabel = engine.info
     ? engine.info.backend === "webgpu"
-      ? `WebGPU${engine.info.gpu ? ` · ${engine.info.gpu}` : ""}`
+      ? `WebGPU${engine.info.gpu ? ` · ${engine.info.gpu}` : ""}${engine.info.fp16 ? " · FP16" : ""}`
       : `CPU · ${engine.info.slots} threads`
     : null;
   const network = engine.status === "ready" ? engine.info?.network : undefined;

@@ -5,7 +5,7 @@
 // changes. If Hugging Face cannot be reached, the last downloaded copy is used,
 // and failing that the copy bundled with the site (public/engine).
 
-import { convertToFp32 } from "./onnxFp32";
+import { convertToFp32 } from "./onnxRewrite";
 import { mapOutputNames } from "./inferenceCore";
 import { idbGet, idbSet } from "../lib/storage";
 
@@ -71,8 +71,16 @@ async function sha256(bytes: Uint8Array<ArrayBuffer>): Promise<string> {
   return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+export interface LoadedNetwork {
+  /** FP32 model for onnxruntime. */
+  model: Uint8Array;
+  /** The published file when it is FP16, which GPUs with FP16 shaders can run as is. */
+  fp16?: Uint8Array;
+  info: NetworkInfo;
+}
+
 /** Converts to FP32 and checks the network fits this engine build. */
-function prepare(bytes: Uint8Array): Uint8Array {
+function prepare(bytes: Uint8Array, info: NetworkInfo): LoadedNetwork {
   const network = convertToFp32(bytes);
   const input = network.inputs.find((i) => i.dims.length === 4);
   const planes = input?.dims.slice(1).join("x");
@@ -80,31 +88,31 @@ function prepare(bytes: Uint8Array): Uint8Array {
     throw new Error(`network input is ${planes ?? "missing"}, this engine encodes ${INPUT_PLANES}x8x8`);
   }
   mapOutputNames(network.outputs.map((o) => o.name));
-  return network.model;
+  return { model: network.model, fp16: network.converted ? bytes : undefined, info };
 }
 
 export type FetchBytes = (url: string, label: string) => Promise<Uint8Array<ArrayBuffer>>;
 
 /**
- * Loads `target` (from `resolveNetwork`) as FP32 bytes ready for onnxruntime,
- * falling back to the cached and then the bundled copy if it cannot be used.
+ * Loads `target` (from `resolveNetwork`) ready for onnxruntime, falling back to
+ * the cached and then the bundled copy (FP32 only) if it cannot be used.
  * Without a target it loads the bundled copy.
  */
-export async function loadNetwork(target: NetworkInfo | undefined, base: string, fetchBytes: FetchBytes): Promise<{ model: Uint8Array; info: NetworkInfo }> {
+export async function loadNetwork(target: NetworkInfo | undefined, base: string, fetchBytes: FetchBytes): Promise<LoadedNetwork> {
   const cached = await idbGet<CachedNetwork>(CACHE_KEY);
   let problem = target?.problem;
   if (target && target.source !== "bundled") {
     try {
       if (cached?.info.id === target.id) {
-        return { model: prepare(new Uint8Array(cached.bytes)), info: target };
+        return prepare(new Uint8Array(cached.bytes), target);
       }
       if (target.source === "latest") {
         const bytes = await fetchBytes(networkUrl(target.commit), "Downloading network");
         const hash = await sha256(bytes);
         if (hash !== target.id) throw new Error(`downloaded file has sha256 ${hash.slice(0, 7)}, expected ${target.id.slice(0, 7)}`);
-        const model = prepare(bytes);
+        const network = prepare(bytes, target);
         await idbSet(CACHE_KEY, { info: target, bytes: bytes.buffer } satisfies CachedNetwork);
-        return { model, info: target };
+        return network;
       }
     } catch (error) {
       console.warn("Could not use the latest network", error);
@@ -112,7 +120,7 @@ export async function loadNetwork(target: NetworkInfo | undefined, base: string,
     }
     if (cached && cached.info.id !== target.id) {
       try {
-        return { model: prepare(new Uint8Array(cached.bytes)), info: { ...cached.info, source: "cached", problem } };
+        return prepare(new Uint8Array(cached.bytes), { ...cached.info, source: "cached", problem });
       } catch (error) {
         console.warn("Could not use the cached network", error);
       }
