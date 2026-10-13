@@ -13,7 +13,7 @@
 set -euo pipefail
 
 HIVEMIND_REPO="https://github.com/aminwoo/hivemind.git"
-HIVEMIND_COMMIT="852ecc347be28e6c748d6c3fac9a8bf40cf91767"
+HIVEMIND_COMMIT="5f9bb75516020fea30e05b2359cadac58aedf26d"
 NETWORK_REPO="aminwoo/bughouse-twin-s-clock"
 NETWORK_FILE="twin-s-clock.onnx"
 
