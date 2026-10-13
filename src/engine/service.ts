@@ -4,7 +4,7 @@
 import { EngineClient, type SearchInfo } from "./engineClient";
 import { runReview } from "./reviewRunner";
 import { REVIEW_MOVETIME_MS, useStore } from "../state/store";
-import { otherTeam, teamOf, type TeamId } from "../lib/bughouse";
+import { BOARDS, otherTeam, teamOf, type TeamId } from "../lib/bughouse";
 import { engineRequestFor, getNode, mainlineAnchor } from "../lib/tree";
 import { searchClock, teamMoveTimes, type PositionEval } from "../lib/review";
 import type { SearchClock } from "./engineClient";
@@ -128,14 +128,27 @@ async function startLive() {
   const { tree, game, cursor, settings, setLive } = useStore.getState();
   const team = liveTeamFor(cursor);
   const clock = liveClockFor(cursor, team);
-  setLive({ nodeId: cursor, searchedTeam: team, clock, lines: [] });
+  // A mated board ends the game: there is nothing left to search.
+  const mated = BOARDS.find((board) => getNode(tree, cursor).position.isMate(board));
+  if (mated) {
+    setLive({ nodeId: cursor, searchedTeam: team, clock, lines: [], notice: `Checkmate on board ${mated}: the game is over.` });
+    return;
+  }
+  setLive({ nodeId: cursor, searchedTeam: team, clock, lines: [], notice: null });
   const lines: SearchInfo[] = [];
   const onInfo = (info: SearchInfo) => {
     if (token !== liveToken) return;
     lines[info.multipv - 1] = info;
     useStore.getState().setLive({ lines: lines.filter(Boolean).slice() });
   };
-  void engine.search({ ...engineRequestFor(tree, game, cursor), team, clock, multipv: settings.multiPV, infinite: true, onInfo });
+  void engine
+    .search({ ...engineRequestFor(tree, game, cursor), team, clock, multipv: settings.multiPV, infinite: true, onInfo })
+    .then((result) => {
+      // An analysis only ends by itself when there was nothing to search.
+      if (token === liveToken && !result.info && lines.length === 0) {
+        useStore.getState().setLive({ notice: "The engine found nothing to search in this position." });
+      }
+    });
 }
 
 export function stopLive() {

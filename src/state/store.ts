@@ -55,6 +55,8 @@ export interface LiveState {
   /** The clock the current results were searched on. */
   clock: SearchClock | null;
   lines: SearchInfo[];
+  /** Why there is nothing to show, e.g. the game is already over. */
+  notice: string | null;
 }
 
 export interface ReviewState {
@@ -111,7 +113,7 @@ export const useStore = create<AppState>((set, get) => ({
   evals: [],
   review: { running: false, done: 0, total: 0, movetimeMs: 0 },
   engine: { status: "off" },
-  live: { enabled: false, team: "auto", lead: "auto", nodeId: null, searchedTeam: null, clock: null, lines: [] },
+  live: { enabled: false, team: "auto", lead: "auto", nodeId: null, searchedTeam: null, clock: null, lines: [], notice: null },
   settings: localGet("settings", DEFAULT_SETTINGS),
   loading: null,
   error: null,
@@ -125,7 +127,7 @@ export const useStore = create<AppState>((set, get) => ({
       cursor: tree.mainline[ply],
       evals,
       review: { running: false, done: evals.filter(Boolean).length, total: tree.mainline.length, movetimeMs: 0 },
-      live: { ...get().live, lines: [], nodeId: null },
+      live: { ...get().live, lines: [], nodeId: null, notice: null },
       error: null,
     });
   },

@@ -119,7 +119,8 @@ export function EnginePanel() {
             </label>
           </div>
           <p className="muted small">{moveTimesText(clock)}</p>
-          {lines.length === 0 && !review.running && engine.status === "ready" && <p className="muted small">Thinking…</p>}
+          {fresh && live.notice && !review.running && <p className="muted small">{live.notice}</p>}
+          {lines.length === 0 && !(fresh && live.notice) && !review.running && engine.status === "ready" && <p className="muted small">Thinking…</p>}
           <ol className="pv-lines">
             {lines.map((line) => {
               const steps = pvToSan(node.position, line.pv, team);
