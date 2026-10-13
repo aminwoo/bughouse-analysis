@@ -1,4 +1,4 @@
-import { useStore, REVIEW_NODES, type ReviewDepth } from "../state/store";
+import { useStore, REVIEW_MOVETIME_MS, type ReviewDepth } from "../state/store";
 import { useReviews, useSummary } from "../state/derived";
 import { startReview, stopReview } from "../engine/service";
 import { teamOf, type BoardId } from "../lib/bughouse";
@@ -18,7 +18,6 @@ export function ReviewPanel() {
   const review = useStore((s) => s.review);
   const game = useStore((s) => s.game);
   const settings = useStore((s) => s.settings);
-  const engine = useStore((s) => s.engine);
   const setSettings = useStore((s) => s.setSettings);
   const goto = useStore((s) => s.goto);
   const tree = useStore((s) => s.tree);
@@ -26,8 +25,7 @@ export function ReviewPanel() {
   const reviews = useReviews();
   const hasMoves = game.moves.length > 0;
   const complete = review.total > 0 && review.done >= review.total;
-  const backend = engine.info?.backend ?? (settings.backend === "wasm" ? "wasm" : "webgpu");
-  const nodes = REVIEW_NODES[backend][settings.depth];
+  const movetimeMs = REVIEW_MOVETIME_MS[settings.depth];
 
   const playerName = (board: "A" | "B", color: "white" | "black") =>
     game.players[`${board === "A" ? "a" : "b"}${color === "white" ? "White" : "Black"}` as keyof typeof game.players].username;
@@ -78,8 +76,8 @@ export function ReviewPanel() {
                 </button>
               ))}
             </div>
-            <span className="small muted" title="Nodes searched per position, on the clocks at that point of the game">
-              {nodes.toLocaleString()} nodes
+            <span className="small muted" title="Thinking time per position, on the clocks at that point of the game">
+              {movetimeMs / 1000} s per position
             </span>
           </>
         )}

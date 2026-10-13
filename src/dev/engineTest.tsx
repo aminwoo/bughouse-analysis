@@ -40,10 +40,11 @@ function EngineTest() {
         (window as unknown as { engineResult: unknown }).engineResult = null;
         const t = performance.now();
         // ?moves=1e2e4,2d2d4&team=black&lead=-3 selects the position searched;
-        // lead is the team's clock lead in seconds.
+        // lead is the team's clock lead in seconds; movetime=ms searches by time
+        // instead of nodes.
         const moves = q.get("moves")?.split(",").filter(Boolean) ?? [];
         const team = (q.get("team") ?? "white") as "white" | "black";
-        const result = await e.search({ position: "startpos", moves, team, clock: { leadMs: Number(q.get("lead") ?? 0) * 1000, teamMoveTimeMs: 1000, opponentMoveTimeMs: 1000 }, nodes: Number(q.get("nodes") ?? 3000), onInfo: setInfo });
+        const result = await e.search({ position: "startpos", moves, team, clock: { leadMs: Number(q.get("lead") ?? 0) * 1000, teamMoveTimeMs: 1000, opponentMoveTimeMs: 1000 }, ...(q.get("movetime") ? { movetime: Number(q.get("movetime")) } : { nodes: Number(q.get("nodes") ?? 3000) }), onInfo: setInfo });
         (window as unknown as { engineResult: unknown }).engineResult = { result, ms: performance.now() - t, info: i };
       }, (err) => setStatus(`error: ${err.message}`));
     })();

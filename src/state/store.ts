@@ -31,12 +31,10 @@ const DEFAULT_SETTINGS: Settings = {
   multiPV: 1,
 };
 
-// Nodes per position. The WebGPU engine keeps about 384
-// positions in flight, so its searches need a few times that to stay sharp.
-export const REVIEW_NODES: Record<"webgpu" | "wasm", Record<ReviewDepth, number>> = {
-  webgpu: { fast: 1200, normal: 4000, deep: 12000 },
-  wasm: { fast: 200, normal: 600, deep: 1800 },
-};
+// Thinking time per search, ms. Reviews search by time rather than nodes so
+// the engine's root mate scans, which run beside the tree search for as long
+// as it thinks, get their share of every search.
+export const REVIEW_MOVETIME_MS: Record<ReviewDepth, number> = { fast: 500, normal: 1000, deep: 3000 };
 
 export interface EngineState {
   status: "off" | "loading" | "ready" | "error";
@@ -63,7 +61,8 @@ export interface ReviewState {
   running: boolean;
   done: number;
   total: number;
-  nodes: number;
+  /** Thinking time per search the evaluations were made with. */
+  movetimeMs: number;
   /** Network the evaluations came from. */
   network?: string;
   error?: string;
@@ -110,7 +109,7 @@ export const useStore = create<AppState>((set, get) => ({
   cursor: initialTree.rootId,
   flipped: false,
   evals: [],
-  review: { running: false, done: 0, total: 0, nodes: 0 },
+  review: { running: false, done: 0, total: 0, movetimeMs: 0 },
   engine: { status: "off" },
   live: { enabled: false, team: "auto", lead: "auto", nodeId: null, searchedTeam: null, clock: null, lines: [] },
   settings: localGet("settings", DEFAULT_SETTINGS),
@@ -125,7 +124,7 @@ export const useStore = create<AppState>((set, get) => ({
       tree,
       cursor: tree.mainline[ply],
       evals,
-      review: { running: false, done: evals.filter(Boolean).length, total: tree.mainline.length, nodes: 0 },
+      review: { running: false, done: evals.filter(Boolean).length, total: tree.mainline.length, movetimeMs: 0 },
       live: { ...get().live, lines: [], nodeId: null },
       error: null,
     });

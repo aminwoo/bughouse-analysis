@@ -26,7 +26,7 @@ async function loadReviewCache(gameKey: string) {
   const state = useStore.getState();
   if (cached && state.game.key === gameKey && !state.review.running) {
     state.setEvals(cached.evals);
-    state.setReview({ nodes: cached.nodes, network: cached.network, done: cached.evals.filter(Boolean).length, total: state.tree.mainline.length });
+    state.setReview({ movetimeMs: cached.movetimeMs, network: cached.network, done: cached.evals.filter(Boolean).length, total: state.tree.mainline.length });
   }
 }
 

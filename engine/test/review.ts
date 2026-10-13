@@ -1,4 +1,4 @@
-// Reviews a chess.com game headlessly: npx tsx engine/test/review.ts A.json B.json [nodes]
+// Reviews a chess.com game headlessly: npx tsx engine/test/review.ts A.json B.json [movetime ms]
 import fs from "node:fs";
 import { NodeEngine } from "./nodeEngine";
 import { importChessComGames } from "../../src/lib/chesscom";
@@ -8,7 +8,7 @@ import { runReview } from "../../src/engine/reviewRunner";
 import { reviewMoves, summarize, whiteValueAt, type PositionEval } from "../../src/lib/review";
 import type { EngineClient } from "../../src/engine/engineClient";
 
-const [aPath, bPath, nodesArg, outPath] = process.argv.slice(2);
+const [aPath, bPath, movetimeArg, outPath] = process.argv.slice(2);
 const game = buildFromImport(importChessComGames(JSON.parse(fs.readFileSync(aPath, "utf8")), JSON.parse(fs.readFileSync(bPath, "utf8"))));
 const tree = buildTree(game);
 console.log(`${game.title}: ${game.moves.length} moves, dropped ${game.droppedMoves}`);
@@ -16,7 +16,7 @@ const engine = await NodeEngine.create({ engines: 4 });
 const evals: PositionEval[] = [];
 const t0 = performance.now();
 await runReview(engine as unknown as EngineClient, game, tree, {
-  nodes: Number(nodesArg ?? 400),
+  movetimeMs: Number(movetimeArg ?? 1000),
   existing: [],
   onEval: (e) => {
     evals[e.ply] = e;

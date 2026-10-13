@@ -137,10 +137,12 @@ To measure speed:
 
 On an RTX 4070 with an i5-12400F, the defaults (48 search slots × batch 8 over 3 GPU
 workers) reach about 8,000–9,000 nodes per second on WebGPU. On the CPU,
-11 threads reach about 475. With that many positions in flight, review searches
-use 4,000 nodes per position on Normal. A review keeps the engine at the full
-speed of a long search, and searches each position once, plus once more restricted
-to the played move when the engine preferred another. FP16 makes a network call 15–28% faster for 128–256
+11 threads reach about 475. Review searches are timed rather than limited to a
+node count, so hivemind's root mate scans, which run beside the tree search for
+as long as it thinks, get their share of every search: 0.5 s per search on Fast,
+1 s on Normal and 3 s on Deep. Each position is searched once, plus once more
+restricted to the played move when the engine preferred another (that search
+skips the mate scans). FP16 makes a network call 15–28% faster for 128–256
 positions and the review about 7% faster.
 
 ## Deployment

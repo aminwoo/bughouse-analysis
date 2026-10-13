@@ -37,7 +37,7 @@ const ready = waitFor((l) => l.includes("hivemind web ready") || l.includes("fai
 const t0 = performance.now();
 const mod = await createHivemind({
   arguments: ["--engines", String(engines), "--batch-size", String(batch), "--model", "/model.onnx"],
-  pthreadPoolSize: engines + 8,
+  pthreadPoolSize: engines + 12,
   print: onLine,
   printErr: (l) => console.error("[err]", l),
   preRun: [(m) => m.FS.writeFile("/model.onnx", "placeholder")],

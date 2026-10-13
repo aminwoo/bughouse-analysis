@@ -3,7 +3,7 @@
 
 import { EngineClient, type SearchInfo } from "./engineClient";
 import { runReview } from "./reviewRunner";
-import { REVIEW_NODES, useStore } from "../state/store";
+import { REVIEW_MOVETIME_MS, useStore } from "../state/store";
 import { otherTeam, teamOf, type TeamId } from "../lib/bughouse";
 import { engineRequestFor, getNode, mainlineAnchor } from "../lib/tree";
 import { searchClock, teamMoveTimes, type PositionEval } from "../lib/review";
@@ -146,15 +146,15 @@ export function stopLive() {
 let reviewToken = 0;
 
 interface CachedReview {
-  nodes: number;
+  movetimeMs: number;
   /** Network that produced the evaluations. */
   network: string;
   evals: (PositionEval | undefined)[];
 }
 
 function cacheKey(gameKey: string) {
-  // v3 held the two time-advantage searches per position.
-  return `review:v4:${gameKey}`;
+  // v3 held the two time-advantage searches per position, v4 node budgets.
+  return `review:v5:${gameKey}`;
 }
 
 /** The saved review of a game, if it was made with the current network. */
@@ -175,18 +175,18 @@ export async function startReview() {
   liveToken++;
   engine.cancelAll();
   const { game, tree, settings, review, evals, setReview, setEval } = useStore.getState();
-  const nodes = REVIEW_NODES[engine.info!.backend][settings.depth];
+  const movetimeMs = REVIEW_MOVETIME_MS[settings.depth];
   const network = engine.info!.network.id;
   // Resume only work done at the same depth with the same network.
-  const existing = review.nodes === nodes && review.network === network ? evals : [];
+  const existing = review.movetimeMs === movetimeMs && review.network === network ? evals : [];
   if (existing !== evals) useStore.getState().setEvals([]);
-  setReview({ running: true, nodes, network, total: tree.mainline.length, done: existing.filter(Boolean).length, error: undefined });
+  setReview({ running: true, movetimeMs, network, total: tree.mainline.length, done: existing.filter(Boolean).length, error: undefined });
   const gameKey = game.key;
   let lastSave = 0;
-  const save = () => idbSet(cacheKey(gameKey), { nodes, network, evals: useStore.getState().evals } satisfies CachedReview);
+  const save = () => idbSet(cacheKey(gameKey), { movetimeMs, network, evals: useStore.getState().evals } satisfies CachedReview);
   try {
     await runReview(engine, game, tree, {
-      nodes,
+      movetimeMs,
       existing,
       isCancelled: () => token !== reviewToken || useStore.getState().game.key !== gameKey,
       onEval: (e) => {

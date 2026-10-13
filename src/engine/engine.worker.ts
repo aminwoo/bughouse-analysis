@@ -96,9 +96,11 @@ async function init(config: EngineConfig, base: string) {
   const ready = new Promise<boolean>((resolve) => (resolveReady = resolve));
   module = await createHivemind({
     arguments: ["--engines", String(slots), "--batch-size", String(batch), "--model", "/model.onnx"],
-    // One thread per search slot, plus the UCI loop, search driver, mate
-    // probes and garbage collector.
-    pthreadPoolSize: slots + 8,
+    // One thread per search slot, plus the UCI loop, search driver and
+    // garbage collector, Fairy-Stockfish's main thread and four probe
+    // workers, and the three threads that run beside every search (winning
+    // and losing root scans, mate probe).
+    pthreadPoolSize: slots + 12,
     locateFile: (path: string) => new URL(`${base}engine/${path}`, self.location.origin).href,
     mainScriptUrlOrBlob: engineUrl,
     print: (line: string) => {

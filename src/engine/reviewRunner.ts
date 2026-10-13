@@ -33,7 +33,8 @@ function terminalEval(tree: Tree, ply: number, team: PositionEval["team"], clock
 }
 
 export interface ReviewOptions {
-  nodes: number;
+  /** Thinking time per search, so the root mate scans run as well. */
+  movetimeMs: number;
   /** Plies already evaluated (e.g. from the cache) are skipped. */
   existing: (PositionEval | undefined)[];
   onEval: (e: PositionEval) => void;
@@ -53,7 +54,7 @@ export async function runReview(engine: EngineClient, game: GameRecord, tree: Tr
       options.onEval(terminal);
       continue;
     }
-    const request = { ...engineRequestFor(tree, game, tree.mainline[ply]), team, clock, nodes: options.nodes };
+    const request = { ...engineRequestFor(tree, game, tree.mainline[ply]), team, clock, movetime: options.movetimeMs };
     const next = game.moves[ply];
     const result = await engine.search(request);
     if (options.isCancelled()) return;
