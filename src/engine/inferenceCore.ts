@@ -40,7 +40,12 @@ export interface NetworkOutputs {
   movesLeft: Float32Array;
 }
 
-/** Evaluates `batch` positions laid out as [batch, 74, 8, 8]. */
+/** One position's input planes as the engine build lays them out: [planes, 8, 8]. */
+export function inputShape(inputValues: number): number[] {
+  return [inputValues / 64, 8, 8];
+}
+
+/** Evaluates `batch` positions laid out as [batch, ...inputShape]. */
 export type NetworkRunner = (input: Float32Array, batch: number) => Promise<NetworkOutputs>;
 
 export function readRegistry(memory: WebAssembly.Memory, registryPtr: number): RegistryLayout {

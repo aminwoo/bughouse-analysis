@@ -6,14 +6,13 @@
 // one fixed-size call that is replayed from a captured graph; WASM workers each
 // serve one slot on a single CPU thread.
 
-import { mapOutputNames, readRegistry, serveSlots, type NetworkOutputs, type NetworkRunner } from "./inferenceCore";
+import { inputShape, mapOutputNames, readRegistry, serveSlots, type NetworkOutputs, type NetworkRunner } from "./inferenceCore";
 import { convertToFp32 } from "./onnxRewrite";
 import type { InferenceInit, InferenceMessage } from "./protocol";
 
 type Ort = typeof import("onnxruntime-web");
 type Session = Awaited<ReturnType<Ort["InferenceSession"]["create"]>>;
 
-const INPUT_SHAPE = [74, 8, 8];
 /** Time spent waiting for WebGPU readbacks, reported with the stats. */
 let readMs = 0;
 
@@ -43,12 +42,13 @@ function outputsFrom(names: ReturnType<typeof mapOutputNames>, get: (name: strin
 }
 
 /** Plain session: CPU, or WebGPU without graph capture. */
-async function plainRunner(ort: Ort, model: Uint8Array, ep: string): Promise<NetworkRunner> {
+async function plainRunner(ort: Ort, model: Uint8Array, ep: string, inputValues: number): Promise<NetworkRunner> {
+  const shape = inputShape(inputValues);
   const session = await ort.InferenceSession.create(model, { executionProviders: [ep], graphOptimizationLevel: "all" });
   const names = mapOutputNames(session.outputNames);
   const inputName = session.inputNames[0];
   return async (input, batch) => {
-    const out = await session.run({ [inputName]: new ort.Tensor("float32", input, [batch, ...INPUT_SHAPE]) });
+    const out = await session.run({ [inputName]: new ort.Tensor("float32", input, [batch, ...shape]) });
     return outputsFrom(names, (name) => out[name].data as Float32Array);
   };
 }
@@ -88,7 +88,7 @@ async function capturedRunner(ort: Ort, model: Uint8Array, capacity: number, slo
     size: capacity * inputValues * 4,
     usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
   });
-  const inputs = sessions.map(({ size }) => ort.Tensor.fromGpuBuffer(buffer, { dataType: "float32", dims: [size, ...INPUT_SHAPE] }));
+  const inputs = sessions.map(({ size }) => ort.Tensor.fromGpuBuffer(buffer, { dataType: "float32", dims: [size, ...inputShape(inputValues)] }));
   const outputNames = sessions[0].session.outputNames;
   const names = mapOutputNames(outputNames);
   const inputName = sessions[0].session.inputNames[0];
@@ -159,7 +159,7 @@ self.onmessage = async (event: MessageEvent<InferenceInit | "stop">) => {
           // FP16 without graph capture is not worth it: some node fell back to the CPU.
           if (fp16) throw error;
           console.warn("graph capture unavailable, using plain WebGPU", error);
-          return await plainRunner(ort, model, "webgpu");
+          return await plainRunner(ort, model, "webgpu", registry.inputValues);
         }
       };
       gpuFp32 = () => gpuRunner(convertToFp32(init.model).model);
@@ -172,7 +172,7 @@ self.onmessage = async (event: MessageEvent<InferenceInit | "stop">) => {
         run = await gpuFp32();
       }
     } else {
-      run = await plainRunner(ort, init.model, "wasm");
+      run = await plainRunner(ort, init.model, "wasm", registry.inputValues);
     }
 
     // Warm up (and capture) every batch size so the first real requests do not

@@ -6,7 +6,8 @@ import { runReview } from "./reviewRunner";
 import { REVIEW_NODES, useStore } from "../state/store";
 import { otherTeam, teamOf, type TeamId } from "../lib/bughouse";
 import { engineRequestFor, getNode, mainlineAnchor } from "../lib/tree";
-import { timeAdvantageWeight, type PositionEval } from "../lib/review";
+import { searchClock, teamMoveTimes, type PositionEval } from "../lib/review";
+import type { SearchClock } from "./engineClient";
 import { idbGet, idbSet } from "../lib/storage";
 import { resolveNetwork, type NetworkInfo } from "./network";
 
@@ -87,11 +88,17 @@ export function liveTeamFor(nodeId: string): TeamId {
   return "white";
 }
 
-/** Probability that `team` may sit at a node, per the live clock setting. */
-export function liveWeightFor(nodeId: string, team: TeamId): number {
-  const { tree, live, settings } = useStore.getState();
-  if (live.timeAdvantage !== "auto") return live.timeAdvantage === "up" ? 1 : 0;
-  return timeAdvantageWeight(mainlineAnchor(tree, nodeId).clocks, team, settings.clockModel);
+/** `team`'s clock at a node as the game's clocks have it. */
+export function gameClockFor(nodeId: string, team: TeamId): SearchClock {
+  const { tree, game } = useStore.getState();
+  return searchClock(mainlineAnchor(tree, nodeId).clocks, team, teamMoveTimes(game));
+}
+
+/** The clock the live engine searches `team` on at a node, per the live clock setting. */
+export function liveClockFor(nodeId: string, team: TeamId): SearchClock {
+  const { lead } = useStore.getState().live;
+  const clock = gameClockFor(nodeId, team);
+  return lead === "auto" ? clock : { ...clock, leadMs: lead * 1000 };
 }
 
 let liveToken = 0;
@@ -102,11 +109,7 @@ export function scheduleLive() {
   liveTimer = setTimeout(() => void startLive(), 120);
 }
 
-/**
- * Searches the cursor position for one team. With a definite clock situation
- * that is a single endless search; otherwise searches with and without the
- * time advantage alternate with growing budgets so both values firm up.
- */
+/** Searches the cursor position for one team on its clock, until stopped. */
 async function startLive() {
   const token = ++liveToken;
   const state = useStore.getState();
@@ -124,32 +127,15 @@ async function startLive() {
   engine.cancelAll();
   const { tree, game, cursor, settings, setLive } = useStore.getState();
   const team = liveTeamFor(cursor);
-  const weight = liveWeightFor(cursor, team);
-  setLive({ nodeId: cursor, searchedTeam: team, weight, withTA: [], withoutTA: [] });
-  const request = { ...engineRequestFor(tree, game, cursor), team, multipv: settings.multiPV };
-  const collect = (key: "withTA" | "withoutTA") => {
-    const lines: SearchInfo[] = [];
-    return (info: SearchInfo) => {
-      if (token !== liveToken) return;
-      lines[info.multipv - 1] = info;
-      useStore.getState().setLive({ [key]: lines.filter(Boolean).slice() });
-    };
+  const clock = liveClockFor(cursor, team);
+  setLive({ nodeId: cursor, searchedTeam: team, clock, lines: [] });
+  const lines: SearchInfo[] = [];
+  const onInfo = (info: SearchInfo) => {
+    if (token !== liveToken) return;
+    lines[info.multipv - 1] = info;
+    useStore.getState().setLive({ lines: lines.filter(Boolean).slice() });
   };
-
-  if (weight === 0 || weight === 1) {
-    const key = weight === 1 ? "withTA" : "withoutTA";
-    void engine.search({ ...request, timeAdvantage: weight === 1, infinite: true, onInfo: collect(key) });
-    return;
-  }
-  let budget = engine.info!.backend === "webgpu" ? 600 : 150;
-  for (let round = 0; round < 7 && token === liveToken; round++, budget *= 2) {
-    // Search the more likely case first so its line shows up sooner.
-    const order: boolean[] = weight >= 0.5 ? [true, false] : [false, true];
-    for (const ta of order) {
-      if (token !== liveToken) return;
-      await engine.search({ ...request, timeAdvantage: ta, nodes: budget, onInfo: collect(ta ? "withTA" : "withoutTA") });
-    }
-  }
+  void engine.search({ ...engineRequestFor(tree, game, cursor), team, clock, multipv: settings.multiPV, infinite: true, onInfo });
 }
 
 export function stopLive() {
@@ -167,7 +153,8 @@ interface CachedReview {
 }
 
 function cacheKey(gameKey: string) {
-  return `review:v3:${gameKey}`;
+  // v3 held the two time-advantage searches per position.
+  return `review:v4:${gameKey}`;
 }
 
 /** The saved review of a game, if it was made with the current network. */
@@ -235,9 +222,8 @@ useStore.subscribe((state, prev) => {
     state.cursor !== prev.cursor ||
     state.live.enabled !== prev.live.enabled ||
     state.live.team !== prev.live.team ||
-    state.live.timeAdvantage !== prev.live.timeAdvantage ||
+    state.live.lead !== prev.live.lead ||
     state.settings.multiPV !== prev.settings.multiPV ||
-    state.settings.clockModel !== prev.settings.clockModel ||
     state.game !== prev.game;
   if (state.game !== prev.game && prev.review.running) stopReview();
   if (liveChanged) {

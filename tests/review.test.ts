@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
-  blend,
+  DEFAULT_MOVE_TIME_MS,
   gameAccuracy,
   moveAccuracy,
   reviewMoves,
+  searchClock,
   summarize,
-  timeAdvantageWeight,
+  teamMoveTimes,
   valueFor,
   volatilityWeights,
   type MoveReview,
@@ -14,39 +15,52 @@ import {
 import { cpToValue, parseInfo, parseJointMove } from "../src/engine/engineClient";
 import type { GameRecord } from "../src/lib/game";
 
-/** `played` values are the restricted searches for the game's next move. */
-const evalOf = (
-  ply: number,
-  team: "white" | "black",
-  ta: number,
-  noTa: number,
-  best: string | null = null,
-  played: { ta?: number; noTa?: number } = {},
-): PositionEval => ({
+const LEVEL = { leadMs: 0, teamMoveTimeMs: 1000, opponentMoveTimeMs: 1000 };
+
+/** `played` is the restricted search for the game's next move. */
+const evalOf = (ply: number, team: "white" | "black", value: number, best: string | null = null, played?: number): PositionEval => ({
   ply,
   team,
-  withTA: { value: ta, mate: null, best: best ? { a: best, b: null } : null, pv: [], nodes: 100, played: played.ta },
-  withoutTA: { value: noTa, mate: null, best: best ? { a: best, b: null } : null, pv: [], nodes: 100, played: played.noTa },
+  clock: LEVEL,
+  search: { value, mate: null, best: best ? { a: best, b: null } : null, pv: [], nodes: 100, played },
 });
 
-describe("time advantage weight", () => {
+describe("search clock", () => {
   const clocks = { A: { white: 1500, black: 1400 }, B: { white: 1400, black: 1500 } };
-  it("favours the team ahead on its diagonal", () => {
-    expect(timeAdvantageWeight(clocks, "white", "clocks")).toBeGreaterThan(0.9);
-    expect(timeAdvantageWeight(clocks, "black", "clocks")).toBeLessThan(0.1);
-    expect(timeAdvantageWeight(clocks, "white", "binary")).toBe(1);
-    expect(timeAdvantageWeight(clocks, "white", "neutral")).toBe(0.5);
-    expect(timeAdvantageWeight(null, "white", "clocks")).toBe(0.5);
+  const moveTimes = { white: 800, black: 2000 };
+  it("gives each team its diagonal lead and puts its own move time first", () => {
+    expect(searchClock(clocks, "white", moveTimes)).toEqual({ leadMs: 10_000, teamMoveTimeMs: 800, opponentMoveTimeMs: 2000 });
+    expect(searchClock(clocks, "black", moveTimes)).toEqual({ leadMs: -10_000, teamMoveTimeMs: 2000, opponentMoveTimeMs: 800 });
+  });
+  it("searches level clocks when the clocks are unknown", () => {
+    expect(searchClock(null, "white", moveTimes).leadMs).toBe(0);
+  });
+});
+
+describe("teamMoveTimes", () => {
+  // thinkTime is in deciseconds; A White and B Black are the white team.
+  const move = (board: "A" | "B", color: "white" | "black", thinkTime: number) => ({ board, color, thinkTime });
+  it("takes the median think time of each team's moves, within the trained range", () => {
+    const game = {
+      moves: [
+        ...[12, 15, 9, 600, 14].map((t) => move("A", "white", t)),
+        ...[1, 0, 1, 0].map((t) => move("B", "white", t)),
+      ],
+    } as unknown as GameRecord;
+    // White's long sit does not count; black's premoves are held at 0.1 s.
+    expect(teamMoveTimes(game)).toEqual({ white: 1400, black: 100 });
+  });
+  it("falls back to the default with too few moves", () => {
+    const game = { moves: [move("A", "white", 50)] } as unknown as GameRecord;
+    expect(teamMoveTimes(game)).toEqual({ white: DEFAULT_MOVE_TIME_MS, black: DEFAULT_MOVE_TIME_MS });
   });
 });
 
 describe("valueFor", () => {
   it("converts the opponents' search into our perspective", () => {
-    const e = evalOf(0, "black", 0.9, -0.6);
-    // Black may sit with probability 0.3 <=> white may sit with probability 0.7.
-    expect(valueFor(e, "black", 0.3)).toBeCloseTo(0.3 * 0.9 + 0.7 * -0.6);
-    expect(valueFor(e, "white", 0.7)).toBeCloseTo(-(0.3 * 0.9 + 0.7 * -0.6));
-    expect(blend(e, 1)).toBe(0.9);
+    const e = evalOf(0, "black", 0.9);
+    expect(valueFor(e, "black")).toBe(0.9);
+    expect(valueFor(e, "white")).toBe(-0.9);
   });
 });
 
@@ -60,8 +74,8 @@ describe("reviewMoves", () => {
   } as unknown as GameRecord;
 
   it("charges a move with how far its own search falls below the best", () => {
-    const evals = [evalOf(0, "white", 0.2, 0.2, "d2d4", { ta: -0.3, noTa: -0.3 }), evalOf(1, "black", 0.3, 0.3, "e7e5"), evalOf(2, "white", -0.3, -0.3)];
-    const reviews = reviewMoves(game, evals, "neutral");
+    const evals = [evalOf(0, "white", 0.2, "d2d4", -0.3), evalOf(1, "black", 0.3, "e7e5"), evalOf(2, "white", -0.3)];
+    const reviews = reviewMoves(game, evals);
     expect(reviews[1]!.before).toBeCloseTo(0.2);
     expect(reviews[1]!.after).toBeCloseTo(-0.3);
     expect(reviews[1]!.loss).toBeCloseTo(0.5);
@@ -72,21 +86,13 @@ describe("reviewMoves", () => {
 
   it("does not blame a move the engine itself chose", () => {
     // The next position's value is lower, but the move was the engine's pick.
-    const evals = [evalOf(0, "white", 0.2, 0.2, "e2e4"), evalOf(1, "black", 0.3, 0.3), evalOf(2, "white", 0, 0)];
-    expect(reviewMoves(game, evals, "neutral")[1]!.loss).toBe(0);
-  });
-
-  it("blends the clock cases when only one search preferred another move", () => {
-    // Up on time e4 was the choice; down on time it cost 0.5, half of which counts.
-    const evals = [evalOf(0, "white", 0.6, -0.2, "e2e4", { noTa: -0.7 }), evalOf(1, "black", 0, 0, "e7e5")];
-    const review = reviewMoves(game, evals, "neutral")[1]!;
-    expect(review.loss).toBeCloseTo(0.25);
-    expect(review.judgement).toBe("mistake");
+    const evals = [evalOf(0, "white", 0.2, "e2e4"), evalOf(1, "black", 0.3), evalOf(2, "white", 0)];
+    expect(reviewMoves(game, evals)[1]!.loss).toBe(0);
   });
 
   it("leaves a move unjudged until the position before it is searched", () => {
-    const evals = [undefined, evalOf(1, "black", 0, 0, "e7e5")];
-    const reviews = reviewMoves(game, evals, "neutral");
+    const evals = [undefined, evalOf(1, "black", 0, "e7e5")];
+    const reviews = reviewMoves(game, evals);
     expect(reviews[1]).toBeNull();
     expect(reviews[2]!.loss).toBe(0);
   });

@@ -9,8 +9,7 @@ import { getNode, mainlineAnchor } from "../lib/tree";
 export function useReviews(): (MoveReview | null)[] {
   const game = useStore((s) => s.game);
   const evals = useStore((s) => s.evals);
-  const model = useStore((s) => s.settings.clockModel);
-  return useMemo(() => reviewMoves(game, evals, model), [game, evals, model]);
+  return useMemo(() => reviewMoves(game, evals), [game, evals]);
 }
 
 export function useSummary() {
@@ -22,44 +21,22 @@ export function useSummary() {
 
 /** Team white's value per mainline ply from the review (null where missing). */
 export function useWhiteCurve(): (number | null)[] {
-  const game = useStore((s) => s.game);
   const evals = useStore((s) => s.evals);
-  const model = useStore((s) => s.settings.clockModel);
   const length = useStore((s) => s.tree.mainline.length);
-  return useMemo(
-    () => Array.from({ length }, (_, ply) => (evals[ply] ? whiteValueAt(game, evals[ply]!, model) : null)),
-    [game, evals, model, length],
-  );
+  return useMemo(() => Array.from({ length }, (_, ply) => (evals[ply] ? whiteValueAt(evals[ply]!) : null)), [evals, length]);
 }
 
 export interface LiveSummary {
-  /** Blended value for the searched team, once every needed search reported. */
+  /** Value for the searched team, once the search reported. */
   value: number | null;
-  withTA: number | null;
-  withoutTA: number | null;
-  /** Lines of the more likely clock case. */
   lines: SearchInfo[];
   nodes: number;
   nps: number;
 }
 
 export function summarizeLive(live: LiveState): LiveSummary {
-  const ta = live.withTA[0];
-  const no = live.withoutTA[0];
-  let value: number | null = null;
-  if (live.weight === 1) value = ta?.value ?? null;
-  else if (live.weight === 0) value = no?.value ?? null;
-  else if (ta && no) value = live.weight * ta.value + (1 - live.weight) * no.value;
-  const preferTA = live.weight >= 0.5;
-  const lines = preferTA ? (live.withTA.length ? live.withTA : live.withoutTA) : live.withoutTA.length ? live.withoutTA : live.withTA;
-  return {
-    value,
-    withTA: ta?.value ?? null,
-    withoutTA: no?.value ?? null,
-    lines,
-    nodes: (ta?.nodes ?? 0) + (no?.nodes ?? 0),
-    nps: Math.max(ta?.nps ?? 0, no?.nps ?? 0),
-  };
+  const top = live.lines[0];
+  return { value: top?.value ?? null, lines: live.lines, nodes: top?.nodes ?? 0, nps: top?.nps ?? 0 };
 }
 
 /** Team white's value at the cursor: live engine first, then the review. */

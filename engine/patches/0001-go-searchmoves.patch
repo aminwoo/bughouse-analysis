@@ -3,17 +3,17 @@ Add "go ... searchmoves <moves>" to hivemind's UCI interface.
 The root may then only play the given moves (board-prefixed like the position
 command, all on one board), with the other board still free. The site's game
 review uses it to value the move a player actually chose with a search of the
-same position, team and TimeAdvantage setting as the engine's best move.
+same position, team and clock as the engine's best move.
 The root mate scans, mate probe and certification veto are switched off for a
 restricted search, and its tree is never reused.
 
 engine/build.sh applies this on top of HIVEMIND_COMMIT.
 
 diff --git a/engine/src/interface/uci.cc b/engine/src/interface/uci.cc
-index 54dfaa2..79c22fd 100644
+index e74a53b..a1b2870 100644
 --- a/engine/src/interface/uci.cc
 +++ b/engine/src/interface/uci.cc
-@@ -242,10 +242,19 @@ void UCI::go(std::istringstream& is) {
+@@ -250,10 +250,19 @@ void UCI::go(std::istringstream& is) {
      bool isPonder = false;
      bool isBackground = false;
      int whiteTime = 0, blackTime = 0, whiteIncrement = 0, blackIncrement = 0;
@@ -34,9 +34,9 @@ index 54dfaa2..79c22fd 100644
              isPonder = true;
          } else if (token == "background") {
              isBackground = true;
-@@ -322,6 +331,50 @@ void UCI::go(std::istringstream& is) {
-     opts.enablePonder = ponderEnabled;
+@@ -331,6 +340,50 @@ void UCI::go(std::istringstream& is) {
      opts.search = current_search_config();
+     opts.clock = current_clock();
  
 +    if (!searchMoves.empty()) {
 +        if (isBackground) {
@@ -85,7 +85,7 @@ index 54dfaa2..79c22fd 100644
      // "go background": the opponents are to move at the current position, so
      // this is the permanent brain, rooted at the position the front end
      // actually reached. It prints no bestmove and runs until the next
-@@ -355,7 +408,7 @@ void UCI::go(std::istringstream& is) {
+@@ -364,7 +417,7 @@ void UCI::go(std::istringstream& is) {
          try {
              const JointActionCandidate played = agent->run_search(
                  board, enginePtrs, teamSide, teamHasTimeAdvantage, opts);
@@ -95,10 +95,10 @@ index 54dfaa2..79c22fd 100644
                  // position our own move creates, so whichever reply the four
                  // asynchronous players produce lands on a subtree that already
 diff --git a/engine/src/interface/uci.h b/engine/src/interface/uci.h
-index 685ef9e..a769eea 100644
+index f383d62..a837197 100644
 --- a/engine/src/interface/uci.h
 +++ b/engine/src/interface/uci.h
-@@ -39,6 +39,9 @@ private:
+@@ -54,6 +54,9 @@ private:
      // a front end can tell this build accepts the command at all: an older
      // one would read it as a plain go and answer with a bestmove.
      bool backgroundSearchEnabled = true;
@@ -109,7 +109,7 @@ index 685ef9e..a769eea 100644
      // Optional early-game diversity for normal UCI play. A zero/noise-free
      // RuntimeConfig remains the default so existing users stay deterministic.
 diff --git a/engine/src/search/search_params.h b/engine/src/search/search_params.h
-index c034631..47cf300 100644
+index 763fafd..96d4733 100644
 --- a/engine/src/search/search_params.h
 +++ b/engine/src/search/search_params.h
 @@ -2,6 +2,7 @@
@@ -120,7 +120,7 @@ index c034631..47cf300 100644
  
  /**
   * @file search_params.h
-@@ -802,6 +803,11 @@ struct RuntimeConfig {
+@@ -788,6 +789,11 @@ struct RuntimeConfig {
      int jointPolicyTopK = JOINT_POLICY_TOP_K;
      int rootJointPolicyTopK = ROOT_JOINT_POLICY_TOP_K;
      float jointPolicyResidualScale = JOINT_POLICY_RESIDUAL_SCALE;
@@ -133,7 +133,7 @@ index c034631..47cf300 100644
  
  // =============================================================================
 diff --git a/engine/src/search/searchthread.cc b/engine/src/search/searchthread.cc
-index 63f1cc0..5abf50e 100644
+index f25bc5a..af7bade 100644
 --- a/engine/src/search/searchthread.cc
 +++ b/engine/src/search/searchthread.cc
 @@ -1,5 +1,6 @@
@@ -143,7 +143,7 @@ index 63f1cc0..5abf50e 100644
  #include <chrono>
  #include <cmath>
  #include <iomanip>
-@@ -576,7 +577,20 @@ void SearchThread::collect_batch(SearchBatch& batch, Board& board,
+@@ -608,7 +609,20 @@ void SearchThread::collect_batch(SearchBatch& batch, Board& board,
                          board, boardNumber, move);
                  });
              }

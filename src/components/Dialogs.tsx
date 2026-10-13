@@ -1,6 +1,5 @@
 import type { ReactNode } from "react";
 import { useStore } from "../state/store";
-import type { ClockModel } from "../lib/review";
 
 function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
   return (
@@ -17,12 +16,6 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
     </div>
   );
 }
-
-const CLOCK_MODELS: { value: ClockModel; label: string; help: string }[] = [
-  { value: "clocks", label: "Follow the clocks", help: "Weigh the two searches by how far each team is up or down on time." },
-  { value: "neutral", label: "Ignore the clocks", help: "Weigh both equally: a pure board evaluation." },
-  { value: "binary", label: "Engine's view", help: "Use only the search for whichever team is ahead on time, as hivemind plays." },
-];
 
 export function SettingsModal({ onClose }: { onClose: () => void }) {
   const settings = useStore((s) => s.settings);
@@ -54,21 +47,6 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
             ))}
           </select>
         </label>
-        <fieldset className="field">
-          <legend>Clocks in the evaluation</legend>
-          <p className="muted small">
-            hivemind's evaluation depends on which team may sit, i.e. is up on time. Each position is searched both ways and the results are combined:
-          </p>
-          {CLOCK_MODELS.map((m) => (
-            <label key={m.value} className="radio">
-              <input type="radio" name="clock-model" checked={settings.clockModel === m.value} onChange={() => setSettings({ clockModel: m.value })} />
-              <span>
-                <strong>{m.label}</strong>
-                <span className="muted small"> {m.help}</span>
-              </span>
-            </label>
-          ))}
-        </fieldset>
         <label className="field">
           <span>Engine lines</span>
           <select value={settings.multiPV} onChange={(e) => setSettings({ multiPV: Number(e.target.value) })}>
@@ -99,7 +77,7 @@ export function AboutModal({ onClose }: { onClose: () => void }) {
           </a>
           , a neural-network bughouse engine. The engine runs entirely in your browser: its search is compiled to WebAssembly and the network runs on your GPU through WebGPU, or on your CPU
           when WebGPU is unavailable. The newest network is downloaded from{" "}
-          <a href="https://huggingface.co/aminwoo/bughouse-twin-s" target="_blank" rel="noreferrer">
+          <a href="https://huggingface.co/aminwoo/bughouse-twin-s-clock" target="_blank" rel="noreferrer">
             Hugging Face
           </a>{" "}
           and kept in your browser until a new one is released. Nothing is sent to a server except the request that fetches a game from chess.com.
@@ -107,7 +85,17 @@ export function AboutModal({ onClose }: { onClose: () => void }) {
         <h3>Reading the review</h3>
         <p>
           The evaluation is the expected score of the <em>white team</em> (White on board A with Black on board B). Hivemind decides for a whole team at once, so its suggestions are joint moves:
-          one move (or a sit) on each board. A move is marked an inaccuracy (?!), mistake (?) or blunder (??) when its team's winning chances after it are 5, 10 or 15 percentage points below those after the engine's best move.
+          one move (or a sit) on each board.
+        </p>
+        <h3>Clocks</h3>
+        <p>
+          The engine searches on the real clocks. A team may sit while it leads its diagonal opponents (its player's clock against the same colour's clock on the other board), and every
+          move it makes while on turn on both boards costs it its move time, so a lead buys only so many sits. Each team's move time is the median time its players took per move in the
+          game. Moves are judged on the clocks of the position before them, so thinking time is not counted as a mistake. The engine panel's Clock menu searches the current position on
+          another lead.
+        </p>
+        <p>
+          A move is marked an inaccuracy (?!), mistake (?) or blunder (??) when its team's winning chances after it are 5, 10 or 15 percentage points below those after the engine's best move.
         </p>
         <h3>Keyboard</h3>
         <p className="kbd-list">

@@ -1,18 +1,17 @@
 // Game review: evaluates every mainline position and judges each move.
 //
-// Hivemind's value depends heavily on whether the searching team holds the
-// time advantage (it may then sit, the opponents may not), so each position is
-// searched twice, with and without it, and the two values are blended by how
-// likely the team is to be up on time given the real clocks. A move is judged
-// by how far its value falls below the engine's best from the same position:
-// each search is repeated restricted to the move actually played, so both
-// values come from one position, team and clock setting. The blend weight is
-// that of the position before the move, so thinking time is not counted as a
-// move error.
+// Hivemind searches on the real clocks: the searching team's lead over its
+// diagonal opponents decides who may sit and for how long, and each team's
+// move time what every action it plays while on turn on both boards costs it.
+// Each position is searched once on its own clocks. A move is judged by how
+// far its value falls below the engine's best from the same position: the
+// search is repeated restricted to the move actually played, so both values
+// come from one position, team and clock. The clock is that of the position
+// before the move, so thinking time is not counted as a move error.
 
 import { otherTeam, teamOf, type BoardId, type TeamId } from "./bughouse";
 import type { Clocks, GameRecord } from "./game";
-import type { JointMove } from "../engine/engineClient";
+import type { JointMove, SearchClock } from "../engine/engineClient";
 
 export interface PositionSearch {
   /** Searching team's value in [-1, 1]. */
@@ -31,11 +30,10 @@ export interface PositionSearch {
 export interface PositionEval {
   ply: number;
   team: TeamId;
-  withTA: PositionSearch;
-  withoutTA: PositionSearch;
+  /** The clock searched on, from `team`'s side. */
+  clock: SearchClock;
+  search: PositionSearch;
 }
-
-export type ClockModel = "clocks" | "neutral" | "binary";
 
 export const JUDGEMENTS = [
   { name: "blunder", loss: 0.3, glyph: "??" },
@@ -50,7 +48,7 @@ export interface MoveReview {
   ply: number;
   team: TeamId;
   board: BoardId;
-  /** Mover's team value before and after, same time-advantage weight. */
+  /** Mover's team value before and after, on the same clock. */
   before: number;
   after: number;
   loss: number;
@@ -60,31 +58,52 @@ export interface MoveReview {
   accuracy: number;
 }
 
-/** Seconds of clock difference that make the time advantage ~73% likely. */
-const CLOCK_SCALE_DS = 30;
+/** Move time assumed for a team the game says too little about. */
+export const DEFAULT_MOVE_TIME_MS = 1000;
+/** Move times the clock networks were trained on (0.1-3 s per action). */
+const MIN_MOVE_TIME_MS = 100;
+const MAX_MOVE_TIME_MS = 3000;
+/** Moves a team needs before its own think times set its move time. */
+const MIN_TIMED_MOVES = 4;
 
 /** Diagonal clock difference for a team, deciseconds (positive = ahead). */
 export function clockLead(clocks: Clocks, team: TeamId): number {
   return team === "white" ? clocks.A.white - clocks.B.white : clocks.A.black - clocks.B.black;
 }
 
-/** Probability that `team` holds the time advantage. */
-export function timeAdvantageWeight(clocks: Clocks | null, team: TeamId, model: ClockModel): number {
-  if (!clocks || model === "neutral") return 0.5;
-  const lead = clockLead(clocks, team);
-  if (model === "binary") return lead > 0 ? 1 : 0;
-  return 1 / (1 + Math.exp(-lead / CLOCK_SCALE_DS));
+function median(xs: number[]): number {
+  const sorted = xs.slice().sort((a, b) => a - b);
+  const mid = sorted.length >> 1;
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
 }
 
-export function blend(e: PositionEval, weight: number): number {
-  return weight * e.withTA.value + (1 - weight) * e.withoutTA.value;
+export type MoveTimes = Record<TeamId, number>;
+
+/**
+ * Each team's move time, ms: the median think time of its players' moves in
+ * the game. The median keeps long sits from counting as slow moves.
+ */
+export function teamMoveTimes(game: Pick<GameRecord, "moves">): MoveTimes {
+  const of = (team: TeamId) => {
+    const thinks = game.moves.filter((m) => teamOf(m.board, m.color) === team && m.thinkTime != null).map((m) => m.thinkTime * 100);
+    if (thinks.length < MIN_TIMED_MOVES) return DEFAULT_MOVE_TIME_MS;
+    return Math.max(MIN_MOVE_TIME_MS, Math.min(MAX_MOVE_TIME_MS, Math.round(median(thinks))));
+  };
+  return { white: of("white"), black: of("black") };
 }
 
-/** Blended value from `team`'s point of view, given `team`'s TA weight. */
-export function valueFor(e: PositionEval, team: TeamId, weight: number): number {
-  if (e.team === team) return blend(e, weight);
-  // The opponents searched: their TA=true world is our TA=false one.
-  return -blend(e, 1 - weight);
+/** The clock `team` searches on: its lead (level without clocks) and both move times. */
+export function searchClock(clocks: Clocks | null, team: TeamId, moveTimes: MoveTimes): SearchClock {
+  return {
+    leadMs: clocks ? clockLead(clocks, team) * 100 : 0,
+    teamMoveTimeMs: moveTimes[team],
+    opponentMoveTimeMs: moveTimes[otherTeam(team)],
+  };
+}
+
+/** Value from `team`'s point of view. Both teams see the same clock. */
+export function valueFor(e: PositionEval, team: TeamId): number {
+  return e.team === team ? e.search.value : -e.search.value;
 }
 
 export function winPercent(value: number): number {
@@ -143,21 +162,21 @@ export function clocksAt(game: GameRecord, ply: number): Clocks | null {
   return ply === 0 ? game.startClocks : game.moves[ply - 1]?.clocks ?? null;
 }
 
-export function whiteValueAt(game: GameRecord, e: PositionEval, model: ClockModel): number {
-  const weight = timeAdvantageWeight(clocksAt(game, e.ply), "white", model);
-  return valueFor(e, "white", weight);
+/** The clock a mainline position is searched on for `team`. */
+export function clockAt(game: GameRecord, ply: number, team: TeamId, moveTimes: MoveTimes = teamMoveTimes(game)): SearchClock {
+  return searchClock(clocksAt(game, ply), team, moveTimes);
 }
 
-/** Blended value of the game's next move from `e`, for the searching team. */
-export function playedValue(e: PositionEval, weight: number): number {
-  return weight * (e.withTA.played ?? e.withTA.value) + (1 - weight) * (e.withoutTA.played ?? e.withoutTA.value);
+export function whiteValueAt(e: PositionEval): number {
+  return valueFor(e, "white");
 }
 
-export function bestFor(e: PositionEval, weight: number): JointMove | null {
-  return (weight >= 0.5 ? e.withTA.best : e.withoutTA.best) ?? e.withTA.best ?? e.withoutTA.best;
+/** Value of the game's next move from `e`, for the searching team. */
+export function playedValue(e: PositionEval): number {
+  return e.search.played ?? e.search.value;
 }
 
-export function reviewMoves(game: GameRecord, evals: (PositionEval | undefined)[], model: ClockModel): (MoveReview | null)[] {
+export function reviewMoves(game: GameRecord, evals: (PositionEval | undefined)[]): (MoveReview | null)[] {
   const out: (MoveReview | null)[] = [null];
   for (let ply = 1; ply <= game.moves.length; ply++) {
     const move = game.moves[ply - 1];
@@ -168,11 +187,10 @@ export function reviewMoves(game: GameRecord, evals: (PositionEval | undefined)[
       out.push(null);
       continue;
     }
-    const weight = timeAdvantageWeight(clocksAt(game, ply - 1), team, model);
-    const best = bestFor(before, weight);
+    const best = before.search.best;
     const bestHere = best ? (move.board === "A" ? best.a : best.b) : undefined;
-    const vBefore = blend(before, weight);
-    const vAfter = playedValue(before, weight);
+    const vBefore = before.search.value;
+    const vAfter = playedValue(before);
     const loss = Math.max(0, vBefore - vAfter);
     const judgement = JUDGEMENTS.find((j) => loss >= j.loss)?.name ?? null;
     out.push({

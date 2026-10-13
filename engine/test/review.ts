@@ -26,18 +26,18 @@ await runReview(engine as unknown as EngineClient, game, tree, {
 });
 console.log(`\nreviewed in ${((performance.now() - t0) / 1000).toFixed(1)}s`);
 if (outPath) fs.writeFileSync(outPath, JSON.stringify(evals));
-const reviews = reviewMoves(game, evals, "clocks");
+const reviews = reviewMoves(game, evals);
 for (let ply = 1; ply <= game.moves.length; ply++) {
   const m = game.moves[ply - 1];
   const r = reviews[ply]!;
   const e = evals[ply - 1];
   console.log(
     `${String(ply).padStart(3)} ${m.board}${m.number}${m.color === "white" ? " " : "'"} ${m.san.padEnd(8)} ` +
-      `W=${whiteValueAt(game, evals[ply], "clocks").toFixed(2).padStart(5)} ` +
-      `[${e.team[0]} ta ${e.withTA.value.toFixed(2)} no ${e.withoutTA.value.toFixed(2)}] ` +
+      `W=${whiteValueAt(evals[ply]).toFixed(2).padStart(5)} ` +
+      `[${e.team[0]} lead ${(e.clock.leadMs / 1000).toFixed(1).padStart(5)}s ${e.search.value.toFixed(2)}] ` +
       `loss=${r.loss.toFixed(2)} ${r.judgement ?? ""} ${r.judgement ? "best " + (r.best ?? "sit") : ""}`,
   );
 }
-console.log(summarize(game, reviews));
+console.log(JSON.stringify(summarize(game, reviews, evals.map((e) => (e ? whiteValueAt(e) : null))), null, 1));
 await engine.close();
 process.exit(0);

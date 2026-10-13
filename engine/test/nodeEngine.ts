@@ -3,7 +3,7 @@
 import { Worker } from "node:worker_threads";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { goCommand, parseInfo, parseJointMove, type SearchInfo, type SearchRequest, type SearchResult } from "../../src/engine/engineClient";
+import { clockCommands, goCommand, parseInfo, parseJointMove, type SearchInfo, type SearchRequest, type SearchResult } from "../../src/engine/engineClient";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "../..");
@@ -79,7 +79,7 @@ export class NodeEngine {
         this.send("ucinewgame");
         this.send(`setoption name MultiPV value ${request.multipv ?? 1}`);
         this.send(`setoption name Team value ${request.team}`);
-        this.send(`setoption name TimeAdvantage value ${request.timeAdvantage}`);
+        for (const cmd of clockCommands(request.clock)) this.send(cmd);
         this.send(`position ${request.position}${request.moves.length ? " moves " + request.moves.join(" ") : ""}`);
         this.send(goCommand(request));
       });

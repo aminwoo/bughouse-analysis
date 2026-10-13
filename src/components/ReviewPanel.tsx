@@ -78,7 +78,7 @@ export function ReviewPanel() {
                 </button>
               ))}
             </div>
-            <span className="small muted" title="Nodes searched per position, twice (with and without time advantage)">
+            <span className="small muted" title="Nodes searched per position, on the clocks at that point of the game">
               {nodes.toLocaleString()} nodes
             </span>
           </>

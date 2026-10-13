@@ -13,9 +13,9 @@
 set -euo pipefail
 
 HIVEMIND_REPO="https://github.com/aminwoo/hivemind.git"
-HIVEMIND_COMMIT="3b67db0359c91cef0f5ffa27b5debccebca904d8"
-NETWORK_REPO="aminwoo/bughouse-twin-s"
-NETWORK_FILE="twin-s-noattn.onnx"
+HIVEMIND_COMMIT="99e6dd08e25b5091e6fcc07105d9f53401e916de"
+NETWORK_REPO="aminwoo/bughouse-twin-s-clock"
+NETWORK_FILE="twin-s-clock.onnx"
 
 ENGINE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(dirname "$ENGINE_DIR")"
@@ -63,7 +63,7 @@ cp "$BUILD_DIR/hivemind.js" "$BUILD_DIR/hivemind.wasm" "$OUT_DIR/"
 
 # The site downloads the newest network from Hugging Face at run time
 # (src/engine/network.ts). The copy here is the fallback for when Hugging Face
-# is unreachable: the current twin-s-noattn.onnx, converted to FP32 like the
+# is unreachable: the current twin-s-clock.onnx, converted to FP32 like the
 # browser does, with its sha256 in twin-s.json.
 NETWORK_FP16="$CACHE_DIR/$NETWORK_FILE"
 NETWORK_FP32="$OUT_DIR/twin-s.onnx"

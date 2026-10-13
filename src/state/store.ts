@@ -5,15 +5,14 @@ import { create } from "zustand";
 import type { BoardId, TeamId } from "../lib/bughouse";
 import { emptyGame, type GameRecord } from "../lib/game";
 import { buildTree, getNode, lineEnd, playMove, deleteVariation as removeVariation, type Tree } from "../lib/tree";
-import type { ClockModel, PositionEval } from "../lib/review";
+import type { PositionEval } from "../lib/review";
 import type { EngineInfo } from "../engine/protocol";
-import type { SearchInfo } from "../engine/engineClient";
+import type { SearchClock, SearchInfo } from "../engine/engineClient";
 import { localGet, localSet } from "../lib/storage";
 
 export type ReviewDepth = "fast" | "normal" | "deep";
 
 export interface Settings {
-  clockModel: ClockModel;
   depth: ReviewDepth;
   backend: "auto" | "webgpu" | "wasm";
   threads: number;
@@ -24,7 +23,6 @@ export interface Settings {
 }
 
 const DEFAULT_SETTINGS: Settings = {
-  clockModel: "clocks",
   depth: "normal",
   backend: "auto",
   threads: 0,
@@ -33,7 +31,7 @@ const DEFAULT_SETTINGS: Settings = {
   multiPV: 1,
 };
 
-// Nodes per position and clock case. The WebGPU engine keeps about 384
+// Nodes per position. The WebGPU engine keeps about 384
 // positions in flight, so its searches need a few times that to stay sharp.
 export const REVIEW_NODES: Record<"webgpu" | "wasm", Record<ReviewDepth, number>> = {
   webgpu: { fast: 1200, normal: 4000, deep: 12000 },
@@ -51,14 +49,14 @@ export interface EngineState {
 export interface LiveState {
   enabled: boolean;
   team: "auto" | TeamId;
-  timeAdvantage: "auto" | "up" | "down";
+  /** The searched team's clock lead in seconds, or "auto" to read it from the clocks. */
+  lead: "auto" | number;
   /** Node and team the current results belong to. */
   nodeId: string | null;
   searchedTeam: TeamId | null;
-  /** Probability the searched team holds the time advantage (1/0 when forced). */
-  weight: number;
-  withTA: SearchInfo[];
-  withoutTA: SearchInfo[];
+  /** The clock the current results were searched on. */
+  clock: SearchClock | null;
+  lines: SearchInfo[];
 }
 
 export interface ReviewState {
@@ -114,7 +112,7 @@ export const useStore = create<AppState>((set, get) => ({
   evals: [],
   review: { running: false, done: 0, total: 0, nodes: 0 },
   engine: { status: "off" },
-  live: { enabled: false, team: "auto", timeAdvantage: "auto", nodeId: null, searchedTeam: null, weight: 0.5, withTA: [], withoutTA: [] },
+  live: { enabled: false, team: "auto", lead: "auto", nodeId: null, searchedTeam: null, clock: null, lines: [] },
   settings: localGet("settings", DEFAULT_SETTINGS),
   loading: null,
   error: null,
@@ -128,7 +126,7 @@ export const useStore = create<AppState>((set, get) => ({
       cursor: tree.mainline[ply],
       evals,
       review: { running: false, done: evals.filter(Boolean).length, total: tree.mainline.length, nodes: 0 },
-      live: { ...get().live, withTA: [], withoutTA: [], nodeId: null },
+      live: { ...get().live, lines: [], nodeId: null },
       error: null,
     });
   },

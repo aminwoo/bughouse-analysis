@@ -27,13 +27,25 @@ export interface SearchResult {
   lines: SearchInfo[];
 }
 
+/**
+ * Hivemind's clock model: the searching team's lead over its diagonal
+ * opponents and what one action costs each team's clock. The team may sit
+ * while its lead is positive, and every action it plays while on turn on both
+ * boards costs it its move time.
+ */
+export interface SearchClock {
+  leadMs: number;
+  teamMoveTimeMs: number;
+  opponentMoveTimeMs: number;
+}
+
 export interface SearchRequest {
   /** "startpos" or "fen <fenA> | <fenB>". */
   position: string;
   /** Board-prefixed UCI moves, e.g. ["1e2e4", "2d2d4"]. */
   moves: string[];
   team: TeamId;
-  timeAdvantage: boolean;
+  clock: SearchClock;
   nodes?: number;
   movetime?: number;
   infinite?: boolean;
@@ -41,6 +53,16 @@ export interface SearchRequest {
   /** Board-prefixed moves, all on one board, that the root must choose between. */
   searchMoves?: string[];
   onInfo?: (info: SearchInfo) => void;
+}
+
+/** The setoption commands that put the engine on the request's clock. */
+export function clockCommands(clock: SearchClock): string[] {
+  return [
+    "setoption name TimeModel value clock",
+    `setoption name TimeLeadMs value ${Math.round(clock.leadMs)}`,
+    `setoption name TeamMoveTimeMs value ${Math.round(clock.teamMoveTimeMs)}`,
+    `setoption name OpponentMoveTimeMs value ${Math.round(clock.opponentMoveTimeMs)}`,
+  ];
 }
 
 /** The go command for a request. */
@@ -195,12 +217,12 @@ export class EngineClient {
     this.active = job;
     this.activeLines.clear();
     const r = job.request;
-    // A fresh tree per request: retained trees were searched under other
-    // Team/TimeAdvantage settings.
+    // A fresh tree per request: retained trees were searched for another
+    // team or clock.
     this.send("ucinewgame");
     this.send(`setoption name MultiPV value ${r.multipv ?? 1}`);
     this.send(`setoption name Team value ${r.team}`);
-    this.send(`setoption name TimeAdvantage value ${r.timeAdvantage ? "true" : "false"}`);
+    for (const cmd of clockCommands(r.clock)) this.send(cmd);
     this.send(`position ${r.position}${r.moves.length ? " moves " + r.moves.join(" ") : ""}`);
     this.send(goCommand(r));
   }

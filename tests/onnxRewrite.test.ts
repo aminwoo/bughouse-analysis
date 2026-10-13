@@ -61,10 +61,10 @@ describe("splitsToSlices", () => {
     expect(splitsToSlices(model).replaced).toBe(0);
     const batch = 4;
     // Sparse 0/1 planes, like encoded positions.
-    const data = Float32Array.from({ length: batch * 74 * 64 }, (_, i) => ((i * 2654435761) % 97 < 9 ? 1 : 0));
+    const data = Float32Array.from({ length: batch * 78 * 64 }, (_, i) => ((i * 2654435761) % 97 < 9 ? 1 : 0));
     const run = async (bytes: Uint8Array) => {
       const session = await ort.InferenceSession.create(bytes, { logSeverityLevel: 3 });
-      const outputs = await session.run({ data: new ort.Tensor("float32", data, [batch, 74, 8, 8]) });
+      const outputs = await session.run({ data: new ort.Tensor("float32", data, [batch, 78, 8, 8]) });
       return session.outputNames.map((name) => Array.from(outputs[name].data as Float32Array));
     };
     expect(await run(model)).toEqual(await run(network));

@@ -10,15 +10,16 @@ evaluation graph.
 
 The engine runs on the visitor's machine. Its search is compiled to WebAssembly
 and the neural network runs on the GPU through WebGPU, or on the CPU when WebGPU is
-unavailable. The browser always runs the newest `twin-s-noattn.onnx` from
-[aminwoo/bughouse-twin-s](https://huggingface.co/aminwoo/bughouse-twin-s). The only
+unavailable. The browser always runs the newest `twin-s-clock.onnx` from
+[aminwoo/bughouse-twin-s-clock](https://huggingface.co/aminwoo/bughouse-twin-s-clock),
+the networks trained to play on real clocks. The only
 server-side code is a small proxy that fetches games from chess.com.
 
 ## Features
 
 - **Import from chess.com**: paste a game link or id; the partner board is found
   automatically and both boards are merged into one timeline by clock times.
-- **Set up any position**: edit both boards, reserves, side to move and who is up on time.
+- **Set up any position**: edit both boards, reserves, side to move and how far each team is up on time.
 - **Two-board analysis board**: play moves and drops on either board to explore
   variations; clocks, reserves and last moves are shown per board.
 - **Live engine**: hivemind's joint move for a team (one move or a sit on each
@@ -29,27 +30,26 @@ server-side code is a small proxy that fetches games from chess.com.
 
 ## How the analysis works
 
-Hivemind decides for a whole team at once and its evaluation depends strongly on
-whether that team holds the *time advantage*, meaning it may sit while the opponents
-may not. The same position can read 95% with the time advantage and 5% without it.
-To keep the judgements about the moves rather than the clocks, each position is
-searched twice (`TimeAdvantage true` and `false`) and the two values are blended:
-
-- **Follow the clocks** (default): weight by how likely the team is to be up on
-  time, a logistic function of the diagonal clock difference (A White vs B White for
-  the white team, A Black vs B Black for the black team).
-- **Ignore the clocks**: weigh both equally, a pure board evaluation.
-- **Engine's view**: use only the search matching who is actually ahead, as hivemind plays.
+Hivemind decides for a whole team at once and searches on the real clocks
+(`TimeModel clock`). A team may sit, waiting instead of moving, while it leads its
+diagonal opponents: A White against B White for the white team, A Black against
+B Black for the black team. Every action a team plays while on turn on both boards
+costs it its own move time, so a lead pays for only so many sits, and the network
+reads both the lead and the two teams' move times. Each position is searched once
+on the lead its clocks show. Each team's move time is the median time its players
+took per move in the game, held within the 0.1–3 s the networks were trained on
+(1 s when a team has made fewer than four moves). The engine panel's Clock menu
+searches the current position on another lead.
 
 Each mainline position is searched for the team that moved next in the game. When
 that search prefers a different move from the one played, the same position is
 searched again with the root restricted to the played move (`go … searchmoves`, see
 `engine/patches/`). The other board stays free. A move is judged by how far its
-blended value falls below the engine's best (on a −1…1 scale: 0.1 inaccuracy, 0.2
-mistake, 0.3 blunder). Both values come from the same position, team and clock
-setting, so the comparison never mixes searches made for different teams. The
-weight is that of the position before the move, so thinking time alone is not
-counted against it.
+value falls below the engine's best (on a −1…1 scale: 0.1 inaccuracy, 0.2
+mistake, 0.3 blunder). Both values come from the same position, team and clock,
+so the comparison never mixes searches made for different teams. The clock is
+that of the position before the move, so thinking time alone is not counted
+against it.
 
 Accuracy follows lichess's formula. Each move scores 0–100 from its win-percentage
 drop. A player's or team's accuracy is the average of two means of those scores: a
@@ -74,14 +74,14 @@ page (React)
   wakes it. The C++ search is unchanged.
 - `engine/src/web_main.cc` replaces the stdin UCI loop with a command queue.
 - `src/engine/network.ts` picks the network. On each visit it asks the Hugging Face
-  API for the sha256 of `twin-s-noattn.onnx` on `main`. It downloads the file only
+  API for the sha256 of `twin-s-clock.onnx` on `main`. It downloads the file only
   when that hash changes, checks the download against it and keeps it in IndexedDB.
   GPUs with FP16 shaders run that FP16 file as published, except that
   `onnxRewrite.ts` turns its Split nodes into Slices, which onnxruntime-web's
   WebGPU backend has in FP16. Everywhere else `onnxRewrite.ts` converts the
   weights to FP32, since the CPU backend has no FP16 kernels. If Hugging Face
-  is unreachable, or the new network does not fit this engine build (74×8×8
-  input, value/policy/WDL/moves-left outputs), the engine uses the last saved network. Failing that it uses the copy
+  is unreachable, or the new network does not fit this engine build (78×8×8
+  input, clock planes included, value/policy/WDL/moves-left outputs), the engine uses the last saved network. Failing that it uses the copy
   in `public/engine`, and the engine panel shows "older network". Saved reviews
   record which network made them and are discarded when it changes.
 - `src/engine/` drives the engine over UCI (`engineClient.ts`), schedules live analysis
@@ -115,7 +115,7 @@ HIVEMIND_ROOT=~/hivemind npm run engine:build   # or use a local checkout
 ```
 
 The build also refreshes the fallback network (`public/engine/twin-s.onnx` and
-`twin-s.json`) to the current `twin-s-noattn.onnx` on Hugging Face. New network
+`twin-s.json`) to the current `twin-s-clock.onnx` on Hugging Face. New network
 releases reach visitors without a rebuild. Rebuild only when hivemind's input
 encoding changes, and move `HIVEMIND_COMMIT` to match.
 
@@ -138,9 +138,9 @@ To measure speed:
 On an RTX 4070 with an i5-12400F, the defaults (48 search slots × batch 8 over 3 GPU
 workers) reach about 8,000–9,000 nodes per second on WebGPU. On the CPU,
 11 threads reach about 475. With that many positions in flight, review searches
-use 4,000 nodes per position and clock case on Normal, and a Normal review of the
-97-ply sample game takes about 2 minutes (it averages the full 9,500 nodes per
-second of a long search). FP16 makes a network call 15–28% faster for 128–256
+use 4,000 nodes per position on Normal. A review keeps the engine at the full
+speed of a long search, and searches each position once, plus once more restricted
+to the played move when the engine preferred another. FP16 makes a network call 15–28% faster for 128–256
 positions and the review about 7% faster.
 
 ## Deployment

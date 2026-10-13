@@ -2,20 +2,32 @@ import { useStore } from "../state/store";
 import { summarizeLive } from "../state/derived";
 import { getNode } from "../lib/tree";
 import { percent, pvToSan } from "../lib/format";
-import { liveTeamFor, liveWeightFor } from "../engine/service";
+import { gameClockFor, liveClockFor, liveTeamFor } from "../engine/service";
 import { networkLabel } from "../engine/network";
 import type { TeamId } from "../lib/bughouse";
 import type { GameRecord } from "../lib/game";
+import type { SearchClock } from "../engine/engineClient";
 
 export function teamNames(game: GameRecord, team: TeamId): string {
   const p = game.players;
   return team === "white" ? `${p.aWhite.username} & ${p.bBlack.username}` : `${p.aBlack.username} & ${p.bWhite.username}`;
 }
 
-function clockText(weight: number): string {
-  if (weight >= 0.995) return "up on time";
-  if (weight <= 0.005) return "down on time";
-  return `${Math.round(weight * 100)}% likely up on time`;
+/** Leads the clock menu offers, seconds for the searched team. */
+const LEAD_CHOICES = [30, 10, 3, 0, -3, -10, -30];
+
+function seconds(ms: number): string {
+  const s = Math.abs(ms) / 1000;
+  return `${s >= 10 ? s.toFixed(0) : s.toFixed(1)} s`;
+}
+
+function leadText(leadMs: number): string {
+  if (leadMs === 0) return "level clocks";
+  return leadMs > 0 ? `up ${seconds(leadMs)} (may sit)` : `down ${seconds(leadMs)}`;
+}
+
+function moveTimesText(clock: SearchClock): string {
+  return `Move times: ${seconds(clock.teamMoveTimeMs)} for this team, ${seconds(clock.opponentMoveTimeMs)} for the opponents`;
 }
 
 export function EnginePanel() {
@@ -30,7 +42,9 @@ export function EnginePanel() {
   const node = getNode(tree, cursor);
   const fresh = live.nodeId === cursor && live.searchedTeam != null;
   const team = fresh ? live.searchedTeam! : liveTeamFor(cursor);
-  const weight = fresh ? live.weight : liveWeightFor(cursor, team);
+  const clock = fresh && live.clock ? live.clock : liveClockFor(cursor, team);
+  // The menu's auto entry shows the clocks' own lead even while another is chosen.
+  const autoLeadMs = gameClockFor(cursor, team).leadMs;
   const summary = fresh ? summarizeLive(live) : null;
   const lines = summary?.lines ?? [];
 
@@ -90,23 +104,21 @@ export function EnginePanel() {
             </label>
             <label>
               <span>Clock</span>
-              <select value={live.timeAdvantage} onChange={(e) => setLive({ timeAdvantage: e.target.value as typeof live.timeAdvantage })}>
-                <option value="auto">Auto: {clockText(weight)}</option>
-                <option value="up">Up on time (may sit)</option>
-                <option value="down">Down on time</option>
+              <select
+                value={String(live.lead)}
+                title={moveTimesText(clock)}
+                onChange={(e) => setLive({ lead: e.target.value === "auto" ? "auto" : Number(e.target.value) })}
+              >
+                <option value="auto">Auto: {leadText(autoLeadMs)}</option>
+                {LEAD_CHOICES.map((s) => (
+                  <option key={s} value={s}>
+                    {s === 0 ? "Level clocks" : s > 0 ? `Up ${s} s (may sit)` : `Down ${-s} s`}
+                  </option>
+                ))}
               </select>
             </label>
           </div>
-          {summary && weight > 0 && weight < 1 && (summary.withTA != null || summary.withoutTA != null) && (
-            <div className="ta-split small">
-              <span title="If this team may sit">
-                Up on time <strong>{summary.withTA != null ? percent(summary.withTA) : "…"}</strong>
-              </span>
-              <span title="If the opponents may sit">
-                Down on time <strong>{summary.withoutTA != null ? percent(summary.withoutTA) : "…"}</strong>
-              </span>
-            </div>
-          )}
+          <p className="muted small">{moveTimesText(clock)}</p>
           {lines.length === 0 && !review.running && engine.status === "ready" && <p className="muted small">Thinking…</p>}
           <ol className="pv-lines">
             {lines.map((line) => {

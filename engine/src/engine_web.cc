@@ -14,7 +14,7 @@
 //   registry[1]   layout version
 //   registry[2]   request sequence, bumped and notified on every request
 //   registry[3]   number of slots
-//   registry[4]   input values per position (74 * 8 * 8)
+//   registry[4]   input values per position (78 * 8 * 8)
 //   registry[5]   policy values per position (73 * 8 * 8)
 //   registry[6..] pointer to slot i
 // Each slot is a WebSlot below.

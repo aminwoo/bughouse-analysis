@@ -1,5 +1,5 @@
 // Where the network comes from. The browser downloads the newest
-// twin-s-noattn.onnx from hivemind's Hugging Face repo, so the site picks up new
+// twin-s-clock.onnx from hivemind's Hugging Face repo, so the site picks up new
 // releases without a redeploy. Each download is checked against the sha256 that
 // Hugging Face reports, kept in IndexedDB and only repeated when the file
 // changes. If Hugging Face cannot be reached, the last downloaded copy is used,
@@ -9,11 +9,12 @@ import { convertToFp32 } from "./onnxRewrite";
 import { mapOutputNames } from "./inferenceCore";
 import { idbGet, idbSet } from "../lib/storage";
 
-export const NETWORK_REPO = "aminwoo/bughouse-twin-s";
-export const NETWORK_FILE = "twin-s-noattn.onnx";
-/** Input planes of the encoder in the bundled hivemind build. */
-const INPUT_PLANES = 74;
-const CACHE_KEY = "network:v1";
+export const NETWORK_REPO = "aminwoo/bughouse-twin-s-clock";
+export const NETWORK_FILE = "twin-s-clock.onnx";
+/** Input planes of the encoder in the bundled hivemind build, clock planes included. */
+const INPUT_PLANES = 78;
+// v1 held the twin-s-noattn networks, which read clock inputs wrongly.
+const CACHE_KEY = "network:v2";
 
 export interface NetworkInfo {
   /** sha256 of the published file; identifies the network. */

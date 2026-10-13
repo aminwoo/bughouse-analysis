@@ -41,7 +41,7 @@ await serveSlots({
     // --fake: evaluate the first position for real, then answer every request
     // with it instantly, to measure the search without inference cost.
     if (fake && cached) return tile(cached, batch);
-    const out = await session.run({ [session.inputNames[0]]: new ort.Tensor("float32", input, [batch, 74, 8, 8]) });
+    const out = await session.run({ [session.inputNames[0]]: new ort.Tensor("float32", input, [batch, registry.inputValues / 64, 8, 8]) });
     const result = {
       value: out[names.value].data,
       policyA: out[names.policyA].data,

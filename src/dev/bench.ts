@@ -23,7 +23,7 @@ async function bench(label: string, ort: Ort, ep: string, sizes: number[], extra
       freeDimensionOverrides: { batch: b },
       ...extra,
     });
-    const x = new ort.Tensor("float32", new Float32Array(b * 74 * 64).map(() => Math.random()), [b, 74, 8, 8]);
+    const x = new ort.Tensor("float32", new Float32Array(b * 78 * 64).map(() => Math.random()), [b, 78, 8, 8]);
     for (let i = 0; i < 3; i++) await session.run({ data: x });
     let n = 0;
     const t = performance.now();
@@ -45,10 +45,10 @@ async function benchCapture(ort: Ort, sizes: number[]) {
       preferredOutputLocation: "gpu-buffer",
     });
     const device = (await ort.env.webgpu.device) as GPUDevice;
-    const bytes = b * 74 * 64 * 4;
+    const bytes = b * 78 * 64 * 4;
     const inputBuffer = device.createBuffer({ size: bytes, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC });
-    const input = ort.Tensor.fromGpuBuffer(inputBuffer, { dataType: "float32", dims: [b, 74, 8, 8] });
-    const data = new Float32Array(b * 74 * 64).map(() => Math.random());
+    const input = ort.Tensor.fromGpuBuffer(inputBuffer, { dataType: "float32", dims: [b, 78, 8, 8] });
+    const data = new Float32Array(b * 78 * 64).map(() => Math.random());
     const runOnce = async () => {
       device.queue.writeBuffer(inputBuffer, 0, data);
       const res = await session.run({ data: input });
@@ -83,9 +83,9 @@ async function benchBreakdown(ort: Ort, sizes: number[]) {
       ...(q.get("verbose") ? { logSeverityLevel: 0, logVerbosityLevel: 0 } : {}),
     });
     const device = (await ort.env.webgpu.device) as GPUDevice;
-    const inputBuffer = device.createBuffer({ size: b * 74 * 64 * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC });
-    const input = ort.Tensor.fromGpuBuffer(inputBuffer, { dataType: "float32", dims: [b, 74, 8, 8] });
-    const data = new Float32Array(b * 74 * 64).map(() => (Math.random() < 0.1 ? 1 : 0));
+    const inputBuffer = device.createBuffer({ size: b * 78 * 64 * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC });
+    const input = ort.Tensor.fromGpuBuffer(inputBuffer, { dataType: "float32", dims: [b, 78, 8, 8] });
+    const data = new Float32Array(b * 78 * 64).map(() => (Math.random() < 0.1 ? 1 : 0));
     const widths = [1, 4672, 4672, 3, 1];
     const staging = device.createBuffer({ size: b * 9349 * 4, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
     const modes = {

@@ -15,7 +15,6 @@ interface SetupModalProps {
 }
 
 type Tool = Piece | "erase" | null;
-type Advantage = "white" | "even" | "black" | "unknown";
 
 const ROLES: Role[] = ["king", "queen", "rook", "bishop", "knight", "pawn"];
 const BASE = 1800;
@@ -189,17 +188,18 @@ function BoardEditor({ id, fen, onChange, orientation }: { id: BoardId; fen: str
 export function SetupModal({ initial, onCancel, onSubmit }: SetupModalProps) {
   const [fenA, setFenA] = useState(initial.A);
   const [fenB, setFenB] = useState(initial.B);
-  const [advantage, setAdvantage] = useState<Advantage>("unknown");
-  const valid = !validate(fenA) && !validate(fenB);
+  // Seconds the white team (A White & B Black) leads its diagonal opponents by.
+  const [lead, setLead] = useState("0");
+  const leadSeconds = Number(lead);
+  const valid = !validate(fenA) && !validate(fenB) && lead.trim() !== "" && Number.isFinite(leadSeconds) && Math.abs(leadSeconds) <= BASE / 10;
 
-  const clocks = (): Clocks | null => {
-    if (advantage === "unknown") return null;
-    const lead = advantage === "even" ? 0 : 100;
-    // Team white leads when A White's clock exceeds B White's (and the same for Black).
-    const white = advantage === "white";
+  const clocks = (): Clocks => {
+    // Team white leads when A White's clock exceeds B White's, by the same
+    // amount as B Black's exceeds A Black's.
+    const half = Math.round(leadSeconds * 5);
     return {
-      A: { white: BASE + (white ? lead : 0), black: BASE + (white ? 0 : lead) },
-      B: { white: BASE + (white ? 0 : lead), black: BASE + (white ? lead : 0) },
+      A: { white: BASE + half, black: BASE - half },
+      B: { white: BASE - half, black: BASE + half },
     };
   };
 
@@ -220,14 +220,9 @@ export function SetupModal({ initial, onCancel, onSubmit }: SetupModalProps) {
           <BoardEditor id="B" fen={fenB} onChange={setFenB} orientation="black" />
         </div>
         <div className="editor-footer">
-          <label className="field">
-            <span>Time advantage</span>
-            <select value={advantage} onChange={(e) => setAdvantage(e.target.value as Advantage)}>
-              <option value="unknown">Unknown (weigh both equally)</option>
-              <option value="even">Even clocks</option>
-              <option value="white">A White &amp; B Black are up on time</option>
-              <option value="black">A Black &amp; B White are up on time</option>
-            </select>
+          <label className="field" title="Negative when A Black & B White are ahead. The leading team may sit until its lead is spent.">
+            <span>A White &amp; B Black lead on time (seconds)</span>
+            <input type="number" step="0.5" value={lead} onChange={(e) => setLead(e.target.value)} />
           </label>
           <div className="spacer" />
           <button className="btn" onClick={onCancel}>

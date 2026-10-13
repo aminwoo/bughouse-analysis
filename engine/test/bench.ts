@@ -14,6 +14,7 @@ import { importChessComGames, type ChessComGame } from "../../src/lib/chesscom";
 import { buildFromImport } from "../../src/lib/game";
 import { buildTree, engineMoves } from "../../src/lib/tree";
 import { teamToSearch } from "../../src/lib/review";
+import { clockCommands } from "../../src/engine/engineClient";
 import gameA from "../../tests/fixtures/159878252255.json";
 import gameB from "../../tests/fixtures/159878252253.json";
 
@@ -43,7 +44,7 @@ for (const engines of engineCounts) {
       "uci",
       "isready",
       `setoption name Team value ${p.team}`,
-      "setoption name TimeAdvantage value false",
+      ...clockCommands({ leadMs: 0, teamMoveTimeMs: 1000, opponentMoveTimeMs: 1000 }),
       `position startpos${p.moves.length ? " moves " + p.moves.join(" ") : ""}`,
       `go nodes ${nodes}`,
       "wait",
