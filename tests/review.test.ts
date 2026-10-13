@@ -4,6 +4,7 @@ import {
   gameAccuracy,
   moveAccuracy,
   reviewMoves,
+  playerMoveTime,
   searchClock,
   summarize,
   teamMoveTimes,
@@ -49,6 +50,17 @@ describe("teamMoveTimes", () => {
     } as unknown as GameRecord;
     // White's long sit does not count; black's premoves are held at 0.1 s.
     expect(teamMoveTimes(game)).toEqual({ white: 1400, black: 100 });
+  });
+  it("gives each player the median of their own moves, unclamped", () => {
+    const game = {
+      moves: [
+        ...[12, 15, 9, 600].map((t) => move("A", "white", t)),
+        ...[1, 0, 1].map((t) => move("B", "black", t)),
+      ],
+    } as unknown as GameRecord;
+    expect(playerMoveTime(game, "A", "white")).toBe(1350);
+    expect(playerMoveTime(game, "B", "black")).toBe(100);
+    expect(playerMoveTime(game, "A", "black")).toBeNull();
   });
   it("falls back to the default with too few moves", () => {
     const game = { moves: [move("A", "white", 50)] } as unknown as GameRecord;

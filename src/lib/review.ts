@@ -92,6 +92,16 @@ export function teamMoveTimes(game: Pick<GameRecord, "moves">): MoveTimes {
   return { white: of("white"), black: of("black") };
 }
 
+/**
+ * One player's typical think time in the game, ms: the median of their own
+ * moves, or null before they have moved. Unlike teamMoveTimes this is not
+ * held to the engine's range, since it only describes the player.
+ */
+export function playerMoveTime(game: Pick<GameRecord, "moves">, board: BoardId, color: "white" | "black"): number | null {
+  const thinks = game.moves.filter((m) => m.board === board && m.color === color && m.thinkTime != null).map((m) => m.thinkTime * 100);
+  return thinks.length ? Math.round(median(thinks)) : null;
+}
+
 /** The clock `team` searches on: its lead (level without clocks) and both move times. */
 export function searchClock(clocks: Clocks | null, team: TeamId, moveTimes: MoveTimes): SearchClock {
   return {

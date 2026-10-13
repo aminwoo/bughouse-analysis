@@ -657,6 +657,29 @@ select:focus,
   grid-template-columns: 1fr 1fr;
   gap: 8px;
 }
+.team-paces {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 8px 0 4px;
+}
+.team-pace-team {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.team-pace-players {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  padding-left: 16px;
+}
+.team-pace-players em {
+  font-style: normal;
+  font-weight: 600;
+  opacity: 0.7;
+  margin-right: 2px;
+}
 .engine-options label {
   display: flex;
   flex-direction: column;

@@ -4,9 +4,10 @@ import { getNode } from "../lib/tree";
 import { percent, pvToSan } from "../lib/format";
 import { gameClockFor, liveClockFor, liveTeamFor } from "../engine/service";
 import { networkLabel } from "../engine/network";
-import type { TeamId } from "../lib/bughouse";
+import type { BoardId, TeamId } from "../lib/bughouse";
 import type { GameRecord } from "../lib/game";
 import type { SearchClock } from "../engine/engineClient";
+import { playerMoveTime } from "../lib/review";
 
 export function teamNames(game: GameRecord, team: TeamId): string {
   const p = game.players;
@@ -28,6 +29,45 @@ function leadText(leadMs: number): string {
 
 function moveTimesText(clock: SearchClock): string {
   return `Move times: ${seconds(clock.teamMoveTimeMs)} for this team, ${seconds(clock.opponentMoveTimeMs)} for the opponents`;
+}
+
+/** A team's two seats, board A first. */
+function teamSeats(game: GameRecord, team: TeamId): { board: BoardId; color: "white" | "black"; name: string }[] {
+  const p = game.players;
+  return team === "white"
+    ? [
+        { board: "A", color: "white", name: p.aWhite.username },
+        { board: "B", color: "black", name: p.bBlack.username },
+      ]
+    : [
+        { board: "A", color: "black", name: p.aBlack.username },
+        { board: "B", color: "white", name: p.bWhite.username },
+      ];
+}
+
+/**
+ * How fast a team moves: the move time the engine charges it, then each of
+ * its players' own median think time in the game.
+ */
+function TeamPace({ game, team, label, teamMs }: { game: GameRecord; team: TeamId; label: string; teamMs: number }) {
+  return (
+    <div className="team-pace" title="The team's move time is what each of its actions costs its clock in the engine's model: the median think time of its players' moves, held to 0.1–3 s. Each player's figure is the median of their own moves.">
+      <div className="team-pace-team">
+        <span className={`team-dot ${team}`} />
+        {label}: {seconds(teamMs)} a move
+      </div>
+      <div className="team-pace-players muted">
+        {teamSeats(game, team).map((seat) => {
+          const ms = playerMoveTime(game, seat.board, seat.color);
+          return (
+            <span key={seat.board}>
+              <em>{seat.board}</em> {seat.name} {ms == null ? "–" : seconds(ms)}
+            </span>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
 export function EnginePanel() {
@@ -118,7 +158,10 @@ export function EnginePanel() {
               </select>
             </label>
           </div>
-          <p className="muted small">{moveTimesText(clock)}</p>
+          <div className="team-paces small">
+            <TeamPace game={game} team={team} label="This team" teamMs={clock.teamMoveTimeMs} />
+            <TeamPace game={game} team={team === "white" ? "black" : "white"} label="Opponents" teamMs={clock.opponentMoveTimeMs} />
+          </div>
           {fresh && live.notice && !review.running && <p className="muted small">{live.notice}</p>}
           {lines.length === 0 && !(fresh && live.notice) && !review.running && engine.status === "ready" && <p className="muted small">Thinking…</p>}
           <ol className="pv-lines">
