@@ -166,8 +166,9 @@ interface CachedReview {
 }
 
 function cacheKey(gameKey: string) {
-  // v3 held the two time-advantage searches per position, v4 node budgets.
-  return `review:v5:${gameKey}`;
+  // v3 held the two time-advantage searches per position, v4 node budgets,
+  // v5 the engine before PUCT widening.
+  return `review:v6:${gameKey}`;
 }
 
 /** The saved review of a game, if it was made with the current network. */
