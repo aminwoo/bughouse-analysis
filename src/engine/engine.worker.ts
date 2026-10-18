@@ -8,6 +8,7 @@
 import type { EngineConfig, EngineInfo, FromEngine, InferenceBackend, InferenceMessage, ToEngine } from "./protocol";
 import { loadNetwork } from "./network";
 import { splitsToSlices } from "./onnxRewrite";
+import { automaticCpuWorkers } from "../lib/device";
 
 interface HivemindModule {
   ccall: (name: string, ret: null, types: string[], args: unknown[]) => void;
@@ -72,13 +73,19 @@ async function init(config: EngineConfig, base: string) {
   }
   const { backend, gpu, f16 } = await detectBackend(config);
   const cores = navigator.hardwareConcurrency || 4;
+  const lowMemory = !!config.lowMemory;
   // CPU: one single-threaded inference worker per logical core but one, which
-  // measured faster than leaving the hyperthreads idle.
-  const cpuWorkers = config.threads > 0 ? config.threads : Math.max(1, Math.min(16, cores - 1));
+  // measured faster than leaving the hyperthreads idle. Phones get two: each
+  // worker holds its own onnxruntime and its slot's search thread.
+  const cpuWorkers = config.threads > 0 ? config.threads : automaticCpuWorkers(cores, lowMemory);
   // WebGPU: a call costs about the same for 16 positions as for 64, so many
   // search slots (each with its own batch) keep the GPU calls full. Their
   // threads mostly wait on the GPU, so they scale with the cores loosely.
-  const gpuSlots = config.gpuSlots && config.gpuSlots > 0 ? config.gpuSlots : Math.max(16, Math.min(48, cores * 4));
+  // Phones run 4 slots and one GPU worker: every slot is a Web Worker, every
+  // GPU worker an onnxruntime with a captured graph per batch size, and a
+  // phone's GPU memory is its RAM.
+  const gpuSlots =
+    config.gpuSlots && config.gpuSlots > 0 ? config.gpuSlots : lowMemory ? 4 : Math.max(16, Math.min(48, cores * 4));
   const slots = backend === "webgpu" ? gpuSlots : cpuWorkers;
   const batch = config.batchSize && config.batchSize > 0 ? config.batchSize : 8;
 
@@ -115,7 +122,7 @@ async function init(config: EngineConfig, base: string) {
 
   post({ type: "status", text: backend === "webgpu" ? "Compiling network for the GPU" : "Loading network" });
   const registryPtr = module._hm_inference_registry();
-  const gpuWorkers = Math.max(1, Math.min(slots, config.gpuWorkers && config.gpuWorkers > 0 ? config.gpuWorkers : slots >= 32 ? 3 : 2));
+  const gpuWorkers = Math.max(1, Math.min(slots, config.gpuWorkers && config.gpuWorkers > 0 ? config.gpuWorkers : lowMemory ? 1 : slots >= 32 ? 3 : 2));
   const groups =
     backend === "webgpu"
       ? Array.from({ length: gpuWorkers }, (_, w) => Array.from({ length: slots }, (_, i) => i).filter((i) => i % gpuWorkers === w))

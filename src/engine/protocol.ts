@@ -19,6 +19,8 @@ export interface EngineConfig {
   network?: NetworkInfo;
   /** Run the FP16 network on GPUs with FP16 shaders (default true). */
   fp16?: boolean;
+  /** A phone or tablet: far fewer search slots and workers (see lib/device.ts). */
+  lowMemory?: boolean;
 }
 
 export interface InferenceInit {

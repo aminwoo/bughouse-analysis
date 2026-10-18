@@ -10,6 +10,9 @@ import { searchClock, teamMoveTimes, type PositionEval } from "../lib/review";
 import type { SearchClock } from "./engineClient";
 import { idbGet, idbSet } from "../lib/storage";
 import { resolveNetwork, type NetworkInfo } from "./network";
+import { isLowMemoryDevice, liveAnalysisNodes } from "../lib/device";
+
+const lowMemory = isLowMemoryDevice();
 
 let client: EngineClient | null = null;
 let clientReady: Promise<EngineClient> | null = null;
@@ -40,7 +43,7 @@ export function ensureEngine(): Promise<EngineClient> {
 
 function startEngine(backend: "auto" | "webgpu" | "wasm", network: NetworkInfo | undefined, notice?: string): Promise<EngineClient> {
   const { settings, setEngine } = useStore.getState();
-  const engine = new EngineClient({ backend, threads: settings.threads, batchSize: 8, network, fp16: settings.fp16 });
+  const engine = new EngineClient({ backend, threads: settings.threads, batchSize: 8, network, fp16: settings.fp16, lowMemory });
   client = engine;
   setEngine({ status: "loading", message: notice ?? "Starting engine", progress: undefined });
   engine.onStatus((m) => {
@@ -109,7 +112,10 @@ export function scheduleLive() {
   liveTimer = setTimeout(() => void startLive(), 120);
 }
 
-/** Searches the cursor position for one team on its clock, until stopped. */
+/**
+ * Searches the cursor position for one team on its clock, until stopped or
+ * until the tree reaches the device's node ceiling.
+ */
 async function startLive() {
   const token = ++liveToken;
   const state = useStore.getState();
@@ -141,12 +147,19 @@ async function startLive() {
     lines[info.multipv - 1] = info;
     useStore.getState().setLive({ lines: lines.filter(Boolean).slice() });
   };
+  // A node search rather than "go infinite": the tree grows by about 3 KB a
+  // node and is never given back, so an analysis left running would
+  // otherwise fill the browser's memory and get the tab closed.
+  const nodes = liveAnalysisNodes(lowMemory);
   void engine
-    .search({ ...engineRequestFor(tree, game, cursor), team, clock, multipv: settings.multiPV, infinite: true, onInfo })
+    .search({ ...engineRequestFor(tree, game, cursor), team, clock, multipv: settings.multiPV, nodes, onInfo })
     .then((result) => {
-      // An analysis only ends by itself when there was nothing to search.
-      if (token === liveToken && !result.info && lines.length === 0) {
+      if (token !== liveToken) return;
+      if (!result.info && lines.length === 0) {
         useStore.getState().setLive({ notice: "The engine found nothing to search in this position." });
+      } else if (result.info && result.info.nodes >= nodes) {
+        const where = lowMemory ? "this device's" : "the browser's";
+        useStore.getState().setLive({ notice: `Stopped at ${nodes.toLocaleString()} nodes to stay within ${where} memory.` });
       }
     });
 }

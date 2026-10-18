@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { useStore } from "../state/store";
+import { automaticCpuWorkers, isLowMemoryDevice } from "../lib/device";
 
 function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
   return (
@@ -39,7 +40,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
         <label className="field">
           <span>CPU threads</span>
           <select value={settings.threads} onChange={(e) => setSettings({ threads: Number(e.target.value) })}>
-            <option value={0}>Automatic ({Math.max(1, Math.min(16, cores - 1))})</option>
+            <option value={0}>Automatic ({automaticCpuWorkers(cores, isLowMemoryDevice())})</option>
             {Array.from({ length: Math.min(16, cores) }, (_, i) => i + 1).map((n) => (
               <option key={n} value={n}>
                 {n}
