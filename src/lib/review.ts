@@ -58,6 +58,18 @@ export interface MoveReview {
   accuracy: number;
 }
 
+/**
+ * Nodes a search needs before its value means anything. A timed search whose
+ * deadline passes before the root's moves are visited (inference stalled, say
+ * in a background tab) reports an unvisited move's value: a certain loss.
+ */
+export const MIN_SEARCH_NODES = 32;
+
+/** Whether a search ended too soon to trust. A mate is a proof and stands. */
+export function isStarved(search: { nodes: number; mate: number | null }): boolean {
+  return search.mate == null && search.nodes < MIN_SEARCH_NODES;
+}
+
 /** Move time assumed for a team the game says too little about. */
 export const DEFAULT_MOVE_TIME_MS = 1000;
 /** Move times the clock networks were trained on (0.1-3 s per action). */

@@ -119,7 +119,10 @@ export function scheduleLive() {
 async function startLive() {
   const token = ++liveToken;
   const state = useStore.getState();
-  if (!state.live.enabled || state.review.running) {
+  // A running review owns the engine: stopping its search would save
+  // whatever the search had reached as that position's evaluation.
+  if (state.review.running) return;
+  if (!state.live.enabled) {
     client?.cancelAll();
     return;
   }
@@ -166,7 +169,7 @@ async function startLive() {
 
 export function stopLive() {
   liveToken++;
-  client?.cancelAll();
+  if (!useStore.getState().review.running) client?.cancelAll();
 }
 
 let reviewToken = 0;
@@ -180,8 +183,8 @@ interface CachedReview {
 
 function cacheKey(gameKey: string) {
   // v3 held the two time-advantage searches per position, v4 node budgets,
-  // v5 the engine before PUCT widening.
-  return `review:v6:${gameKey}`;
+  // v5 the engine before PUCT widening, v6 searches that live analysis cut short.
+  return `review:v7:${gameKey}`;
 }
 
 /** The saved review of a game, if it was made with the current network. */

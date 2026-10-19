@@ -3,8 +3,11 @@
 import { teamOf, BOARDS } from "../lib/bughouse";
 import type { GameRecord } from "../lib/game";
 import { engineMove, engineRequestFor, type Tree } from "../lib/tree";
-import { clockAt, teamMoveTimes, teamToSearch, type PositionEval, type PositionSearch } from "../lib/review";
-import type { EngineClient, SearchClock, SearchResult } from "./engineClient";
+import { clockAt, isStarved, teamMoveTimes, teamToSearch, type PositionEval, type PositionSearch } from "../lib/review";
+import type { EngineClient, SearchClock, SearchRequest, SearchResult } from "./engineClient";
+
+/** Nodes a starved search is repeated to. */
+const RETRY_NODES = 128;
 
 function toSearch(result: SearchResult): PositionSearch {
   const info = result.info;
@@ -32,6 +35,17 @@ function terminalEval(tree: Tree, ply: number, team: PositionEval["team"], clock
   return null;
 }
 
+/**
+ * Runs a timed search, repeating it to a node count when it ran out of time
+ * before visiting the root's moves: a node-limited search waits for its nodes
+ * however slow inference is.
+ */
+async function searchEnough(engine: EngineClient, request: SearchRequest, isCancelled: () => boolean): Promise<SearchResult> {
+  const result = await engine.search(request);
+  if (isCancelled() || (result.info && !isStarved(result.info))) return result;
+  return engine.search({ ...request, movetime: undefined, nodes: RETRY_NODES });
+}
+
 export interface ReviewOptions {
   /** Thinking time per search, so the root mate scans run as well. */
   movetimeMs: number;
@@ -56,14 +70,14 @@ export async function runReview(engine: EngineClient, game: GameRecord, tree: Tr
     }
     const request = { ...engineRequestFor(tree, game, tree.mainline[ply]), team, clock, movetime: options.movetimeMs };
     const next = game.moves[ply];
-    const result = await engine.search(request);
+    const result = await searchEnough(engine, request, options.isCancelled);
     if (options.isCancelled()) return;
     const search = toSearch(result);
     // Value the move actually played with a second search of this same
     // position restricted to it, unless it was the engine's own choice.
     const best = result.best ? (next?.board === "A" ? result.best.a : result.best.b) : undefined;
     if (next && best !== next.uci) {
-      const forced = await engine.search({ ...request, searchMoves: [engineMove(next)] });
+      const forced = await searchEnough(engine, { ...request, searchMoves: [engineMove(next)] }, options.isCancelled);
       if (options.isCancelled()) return;
       if (forced.info) search.played = forced.info.value;
     }

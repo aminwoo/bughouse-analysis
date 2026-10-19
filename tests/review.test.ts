@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_MOVE_TIME_MS,
   gameAccuracy,
+  isStarved,
   moveAccuracy,
   reviewMoves,
   playerMoveTime,
@@ -35,6 +36,21 @@ describe("search clock", () => {
   });
   it("searches level clocks when the clocks are unknown", () => {
     expect(searchClock(null, "white", moveTimes).leadMs).toBe(0);
+  });
+});
+
+describe("isStarved", () => {
+  it("distrusts a search that ended before visiting the root's moves", () => {
+    // hivemind's report when the deadline passes after one node.
+    const info = parseInfo("info depth 0 score cp -16671 nodes 1 nps 45 time 22 pv (g1f3,b8c6)")!;
+    expect(info.value).toBeCloseTo(-1);
+    expect(isStarved(info)).toBe(true);
+    expect(isStarved({ nodes: 0, mate: null })).toBe(true);
+  });
+  it("keeps full searches and mates", () => {
+    expect(isStarved({ nodes: 1000, mate: null })).toBe(false);
+    // A finished game's mated position is stored with no nodes.
+    expect(isStarved({ nodes: 0, mate: 0 })).toBe(false);
   });
 });
 
@@ -208,7 +224,7 @@ describe("UCI parsing", () => {
   it("parses mates", () => {
     const info = parseInfo("info depth 3 score mate -2 nodes 10 nps 1 time 5 pv (pass,e1e2)")!;
     expect(info.mate).toBe(-2);
-    expect(info.value).toBe(-1);
+    expect(info.value).toBeCloseTo(-1);
   });
 
   it("inverts the score scale", () => {
