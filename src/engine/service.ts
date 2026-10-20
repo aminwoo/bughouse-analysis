@@ -183,8 +183,9 @@ interface CachedReview {
 
 function cacheKey(gameKey: string) {
   // v3 held the two time-advantage searches per position, v4 node budgets,
-  // v5 the engine before PUCT widening, v6 searches that live analysis cut short.
-  return `review:v7:${gameKey}`;
+  // v5 the engine before PUCT widening, v6 searches that live analysis cut short,
+  // v7 the engine before hivemind 3b18b59.
+  return `review:v8:${gameKey}`;
 }
 
 /** The saved review of a game, if it was made with the current network. */
