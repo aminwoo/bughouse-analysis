@@ -9,7 +9,7 @@ import { engineRequestFor, getNode, mainlineAnchor } from "../lib/tree";
 import { searchClock, teamMoveTimes, type PositionEval } from "../lib/review";
 import type { SearchClock } from "./engineClient";
 import { idbGet, idbSet } from "../lib/storage";
-import { resolveNetwork, type NetworkInfo } from "./network";
+import { networkLabel, resolveNetwork, type NetworkInfo } from "./network";
 import { ENGINE_BUILD } from "./engineBuild";
 import { isLowMemoryDevice, liveAnalysisNodes } from "../lib/device";
 
@@ -56,6 +56,7 @@ function startEngine(backend: "auto" | "webgpu" | "wasm", network: NetworkInfo |
   return engine.ready().then(
     (info) => {
       setEngine({ status: "ready", info, message: undefined, progress: undefined });
+      console.info(`hivemind ${ENGINE_BUILD.hivemind.slice(0, 7)} with network ${networkLabel(info.network)}`);
       return engine;
     },
     (error: Error) => {

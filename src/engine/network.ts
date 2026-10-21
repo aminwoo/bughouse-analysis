@@ -131,6 +131,16 @@ export async function loadNetwork(target: NetworkInfo | undefined, base: string,
   return { model: await fetchBytes(`${base}engine/twin-s.onnx`, "Downloading network"), info };
 }
 
+/** The network's name and version, e.g. "twin-s-clock ee382a2". */
+export function networkVersion(info: NetworkInfo): string {
+  return `${NETWORK_FILE.replace(/\.onnx$/, "")} ${info.id.slice(0, 7)}`;
+}
+
+/** The Hugging Face page of the repo revision the network came from. */
+export function networkPageUrl(info: NetworkInfo): string {
+  return `https://huggingface.co/${NETWORK_REPO}${info.commit ? `/tree/${info.commit}` : ""}`;
+}
+
 /** Short description of the network in use, e.g. for a tooltip. */
 export function networkLabel(info: NetworkInfo): string {
   const version = `${NETWORK_FILE} ${info.id.slice(0, 7)}`;

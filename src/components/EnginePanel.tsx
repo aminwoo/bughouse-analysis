@@ -3,7 +3,8 @@ import { summarizeLive } from "../state/derived";
 import { getNode } from "../lib/tree";
 import { percent, pvToSan } from "../lib/format";
 import { gameClockFor, liveClockFor, liveTeamFor } from "../engine/service";
-import { networkLabel } from "../engine/network";
+import { networkLabel, networkPageUrl, networkVersion } from "../engine/network";
+import { ENGINE_BUILD } from "../engine/engineBuild";
 import type { BoardId, TeamId } from "../lib/bughouse";
 import type { GameRecord } from "../lib/game";
 import type { SearchClock } from "../engine/engineClient";
@@ -111,6 +112,24 @@ export function EnginePanel() {
             {engine.status === "ready" && backendLabel}
             {network && network.source !== "latest" && <span className="warn-text"> · older network</span>}
             {engine.status === "off" && "Runs in your browser"}
+          </span>
+          <span className="engine-sub engine-version">
+            <a
+              href={`https://github.com/aminwoo/hivemind/commit/${ENGINE_BUILD.hivemind}`}
+              target="_blank"
+              rel="noreferrer"
+              title={`hivemind commit ${ENGINE_BUILD.hivemind}`}
+            >
+              {ENGINE_BUILD.hivemind.slice(0, 7)}
+            </a>
+            {network && (
+              <>
+                {" · "}
+                <a href={networkPageUrl(network)} target="_blank" rel="noreferrer" title={`Network: ${networkLabel(network)}`}>
+                  {networkVersion(network)}
+                </a>
+              </>
+            )}
           </span>
         </div>
         {live.enabled && summary && summary.nodes > 0 && (
