@@ -10,6 +10,11 @@ on:
   schedule:
     - cron: "17 * * * *"
   workflow_dispatch:
+    inputs:
+      force:
+        description: Rebuild and check even when the pin is current
+        type: boolean
+        default: false
   # Lets hivemind announce a new main commit instead of waiting for the hour.
   repository_dispatch:
     types: [hivemind-main]
@@ -43,7 +48,9 @@ jobs:
           fi
           echo "pinned $pinned, hivemind main $latest"
           echo "latest=$latest" >> "$GITHUB_OUTPUT"
-          echo "stale=$([[ "$latest" != "$pinned" ]] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          stale=false
+          if [[ "$latest" != "$pinned" || "${{ inputs.force }}" == "true" ]]; then stale=true; fi
+          echo "stale=$stale" >> "$GITHUB_OUTPUT"
 
       - name: Pin hivemind main
         if: steps.pin.outputs.stale == 'true'
@@ -95,6 +102,10 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add engine/build.sh public/engine src/engine/engineBuild.ts
+          if git diff --cached --quiet; then
+            echo "the engine build is unchanged"
+            exit 0
+          fi
           git commit -m "Update the engine to hivemind $short"
           git pull --rebase origin main
           git push origin HEAD:main
