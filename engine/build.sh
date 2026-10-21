@@ -13,7 +13,7 @@
 set -euo pipefail
 
 HIVEMIND_REPO="https://github.com/aminwoo/hivemind.git"
-HIVEMIND_COMMIT="3b18b594f0f822f6968fd2b981ee0afdf86d41c1"
+HIVEMIND_COMMIT="8cc7d17503c0e6b9fdc3cee7bcad35837211e9d4"
 NETWORK_REPO="aminwoo/bughouse-twin-s-clock"
 NETWORK_FILE="twin-s-clock.onnx"
 
@@ -41,7 +41,10 @@ if [[ -z "${HIVEMIND_ROOT:-}" ]]; then
     # This checkout belongs to the build: reset it, then apply the patches.
     git -C "$HIVEMIND_ROOT" checkout --quiet --force "$HIVEMIND_COMMIT"
     for patch in "${PATCHES[@]}"; do
-        git -C "$HIVEMIND_ROOT" apply "$patch"
+        # A newer commit may have moved the patched lines; a three-way apply
+        # still takes the patch when its change does not conflict.
+        git -C "$HIVEMIND_ROOT" apply "$patch" 2>/dev/null \
+            || git -C "$HIVEMIND_ROOT" apply --3way "$patch"
     done
 else
     # Never modify a checkout we were pointed at; only check it has the patches.
@@ -60,6 +63,16 @@ emcmake cmake -S "$ENGINE_DIR" -B "$BUILD_DIR" -G Ninja \
 cmake --build "$BUILD_DIR" -j "$(nproc)"
 
 cp "$BUILD_DIR/hivemind.js" "$BUILD_DIR/hivemind.wasm" "$OUT_DIR/"
+
+# Saved reviews are keyed on the engine build, so a new engine reviews games
+# again while a rebuild of the same engine keeps them.
+cat > "$ROOT_DIR/src/engine/engineBuild.ts" <<EOF
+// Written by engine/build.sh: the hivemind commit and a hash of hivemind.wasm.
+export const ENGINE_BUILD = {
+  hivemind: "$(git -C "$HIVEMIND_ROOT" rev-parse HEAD)",
+  wasm: "$(sha256sum "$OUT_DIR/hivemind.wasm" | cut -c1-16)",
+} as const;
+EOF
 
 # The site downloads the newest network from Hugging Face at run time
 # (src/engine/network.ts). The copy here is the fallback for when Hugging Face

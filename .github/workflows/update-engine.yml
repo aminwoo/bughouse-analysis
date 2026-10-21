@@ -1,0 +1,100 @@
+# Keeps the site's engine pinned to hivemind's latest main commit. Each hour it
+# compares engine/build.sh's HIVEMIND_COMMIT with hivemind main; when they
+# differ it rebuilds the WebAssembly engine at main, runs the checks, and
+# pushes the result to main, which Vercel deploys. A failing step (a patch
+# that no longer applies, a build or test failure) leaves the site on its
+# current engine and fails the run.
+name: Update engine
+
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+  # Lets hivemind announce a new main commit instead of waiting for the hour.
+  repository_dispatch:
+    types: [hivemind-main]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update-engine
+  cancel-in-progress: false
+
+env:
+  HIVEMIND_REPO: https://github.com/aminwoo/hivemind.git
+  EMSDK_VERSION: 6.0.12
+
+jobs:
+  update:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compare the pinned commit with hivemind main
+        id: pin
+        run: |
+          latest=$(git ls-remote "$HIVEMIND_REPO" refs/heads/main | cut -f1)
+          pinned=$(sed -n -E 's/^HIVEMIND_COMMIT="([0-9a-f]{40})"$/\1/p' engine/build.sh)
+          if [[ -z "$latest" || -z "$pinned" ]]; then
+            echo "could not read the commits (latest '$latest', pinned '$pinned')" >&2
+            exit 1
+          fi
+          echo "pinned $pinned, hivemind main $latest"
+          echo "latest=$latest" >> "$GITHUB_OUTPUT"
+          echo "stale=$([[ "$latest" != "$pinned" ]] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+      - name: Pin hivemind main
+        if: steps.pin.outputs.stale == 'true'
+        run: |
+          sed -i -E 's/^HIVEMIND_COMMIT="[0-9a-f]{40}"$/HIVEMIND_COMMIT="${{ steps.pin.outputs.latest }}"/' engine/build.sh
+          grep -q '^HIVEMIND_COMMIT="${{ steps.pin.outputs.latest }}"$' engine/build.sh
+
+      - uses: actions/setup-node@v4
+        if: steps.pin.outputs.stale == 'true'
+        with:
+          node-version: 24
+          cache: npm
+
+      - uses: actions/setup-python@v5
+        if: steps.pin.outputs.stale == 'true'
+        with:
+          python-version: "3.12"
+
+      - name: Install the toolchain
+        if: steps.pin.outputs.stale == 'true'
+        run: |
+          sudo apt-get install -y --no-install-recommends ninja-build
+          # The fallback network is converted to FP32 when Hugging Face has a newer one.
+          python -m pip install --quiet onnx
+          git clone --depth 1 https://github.com/emscripten-core/emsdk.git "$RUNNER_TEMP/emsdk"
+          "$RUNNER_TEMP/emsdk/emsdk" install "$EMSDK_VERSION"
+          "$RUNNER_TEMP/emsdk/emsdk" activate "$EMSDK_VERSION"
+          npm ci
+
+      - name: Build the engine
+        if: steps.pin.outputs.stale == 'true'
+        run: |
+          source "$RUNNER_TEMP/emsdk/emsdk_env.sh"
+          npm run engine:build
+
+      - name: Check the site and the engine
+        if: steps.pin.outputs.stale == 'true'
+        run: |
+          npm test
+          npm run build
+          npm run engine:test | tee "$RUNNER_TEMP/engine-test.log"
+          grep -q '^bestmove ' "$RUNNER_TEMP/engine-test.log"
+
+      - name: Push the new engine
+        if: steps.pin.outputs.stale == 'true'
+        run: |
+          latest='${{ steps.pin.outputs.latest }}'
+          short=${latest:0:7}
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add engine/build.sh public/engine src/engine/engineBuild.ts
+          git commit -m "Update the engine to hivemind $short"
+          git pull --rebase origin main
+          git push origin HEAD:main

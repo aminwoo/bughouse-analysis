@@ -10,6 +10,7 @@ import { searchClock, teamMoveTimes, type PositionEval } from "../lib/review";
 import type { SearchClock } from "./engineClient";
 import { idbGet, idbSet } from "../lib/storage";
 import { resolveNetwork, type NetworkInfo } from "./network";
+import { ENGINE_BUILD } from "./engineBuild";
 import { isLowMemoryDevice, liveAnalysisNodes } from "../lib/device";
 
 const lowMemory = isLowMemoryDevice();
@@ -184,8 +185,9 @@ interface CachedReview {
 function cacheKey(gameKey: string) {
   // v3 held the two time-advantage searches per position, v4 node budgets,
   // v5 the engine before PUCT widening, v6 searches that live analysis cut short,
-  // v7 the engine before hivemind 3b18b59.
-  return `review:v8:${gameKey}`;
+  // v7 the engine before hivemind 3b18b59. Since v8 the key also names the
+  // engine build, so each new engine reviews games again without a bump.
+  return `review:v8:${ENGINE_BUILD.wasm}:${gameKey}`;
 }
 
 /** The saved review of a game, if it was made with the current network. */
