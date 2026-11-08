@@ -1,4 +1,5 @@
 // Dev-only: measures onnxruntime-web throughput for the network per backend.
+import { networkUrl } from "../engine/network";
 import { splitsToSlices } from "../engine/onnxRewrite";
 
 type Ort = typeof import("onnxruntime-web");
@@ -6,11 +7,11 @@ const out = document.getElementById("out")!;
 const log = (s: string) => { out.textContent += "\n" + s; console.log(s); };
 const q = new URLSearchParams(location.search);
 
-// ?model=fp16 benchmarks the published FP16 file instead of the FP32 copy.
+// ?model=fp16 benchmarks the published FP16 network, as the site runs it on
+// GPUs with FP16 shaders, instead of the bundled FP32 copy.
 async function loadModel() {
   if (q.get("model") !== "fp16") return new Uint8Array(await (await fetch("/engine/twin-s.onnx")).arrayBuffer());
-  const url = "https://huggingface.co/aminwoo/bughouse-twin-s/resolve/main/twin-s-noattn.onnx";
-  return splitsToSlices(new Uint8Array(await (await fetch(url)).arrayBuffer())).model;
+  return splitsToSlices(new Uint8Array(await (await fetch(networkUrl())).arrayBuffer())).model;
 }
 
 async function bench(label: string, ort: Ort, ep: string, sizes: number[], extra: Record<string, unknown> = {}) {
