@@ -53,19 +53,21 @@ async function plainRunner(ort: Ort, model: Uint8Array, ep: string, inputValues:
   };
 }
 
-/** Batch sizes to capture for `capacity` rows: halvings down to one slot's batch. */
+/** Batch sizes to capture for `capacity` rows: every multiple of one slot's batch. */
 export function captureSizes(capacity: number, slotBatch: number): number[] {
-  const sizes = [capacity];
-  while (sizes[0] / 2 >= slotBatch && sizes[0] % 2 === 0) sizes.unshift(sizes[0] / 2);
+  const sizes: number[] = [];
+  for (let size = slotBatch; size < capacity; size += slotBatch) sizes.push(size);
+  sizes.push(capacity);
   return sizes;
 }
 
 /**
  * WebGPU with captured graphs: onnxruntime replays recorded command buffers
  * instead of re-dispatching each kernel, which halves the cost of a call, but a
- * captured graph has a fixed batch. Several sizes are captured and each call
- * runs on the smallest that fits, since GPU time grows with the rows computed.
- * Only the rows in use cross the bus either way.
+ * captured graph has a fixed batch. GPU time grows linearly with the rows
+ * computed, so a size is captured for every number of slots a call can merge
+ * and no call computes padding rows (halvings alone left a third of each call
+ * as padding on an M5). Only the rows in use cross the bus either way.
  */
 async function capturedRunner(ort: Ort, model: Uint8Array, capacity: number, slotBatch: number, inputValues: number): Promise<NetworkRunner> {
   const sizes = captureSizes(capacity, slotBatch);
