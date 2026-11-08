@@ -33,7 +33,8 @@ async function detectBackend(config: EngineConfig): Promise<{ backend: Inference
       const adapter = (await gpu.requestAdapter({ powerPreference: "high-performance" })) ?? (await gpu.requestAdapter());
       if (adapter) {
         const info = adapter.info;
-        const name = [info?.vendor, info?.architecture, info?.description].filter(Boolean).join(" ");
+        // A Mac can report "apple" for all three; name each part once.
+        const name = [...new Set([info?.vendor, info?.architecture, info?.description].filter(Boolean))].join(" ");
         return { backend: "webgpu", gpu: name || "WebGPU", f16: adapter.features.has("shader-f16") };
       }
     } catch {
