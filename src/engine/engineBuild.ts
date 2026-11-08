@@ -1,5 +1,5 @@
 // Written by engine/build.sh: the hivemind commit and a hash of hivemind.wasm.
 export const ENGINE_BUILD = {
-  hivemind: "89b5919245ecbf3b3b0e48a20d967e1522898c1f",
-  wasm: "1dd040b6b68fe26c",
+  hivemind: "dd3729b1061d95eb13767349d33c54f13d26af7d",
+  wasm: "39120fb86e2fa795",
 } as const;
