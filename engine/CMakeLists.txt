@@ -69,11 +69,10 @@ add_executable(hivemind
     ${HM_SRC}/environment/board.cc
     ${HM_SRC}/environment/planes.cc
     ${HM_SRC}/environment/zobrist.cc
+    ${HM_SRC}/nn/embedded_files.cc
     ${HM_SRC}/nn/onnx_utils.cc
     ${HM_SRC}/search/agent.cc
     ${HM_SRC}/search/single_board.cc
-    ${HM_SRC}/search/alphabeta.cc
-    ${HM_SRC}/nnue/network.cc
     ${HM_SRC}/search/mate_probe.cc
     ${HM_SRC}/search/node.cc
     ${HM_SRC}/search/searchthread.cc
